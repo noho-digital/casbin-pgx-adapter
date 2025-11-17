@@ -3,44 +3,11 @@ package pgxadapter_test
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 	pgxadapter "github.com/noho-digital/casbin-pgx-adapter"
 )
-
-// setupBatchAdapterTestDB creates a clean test database connection for batch adapter tests
-func setupBatchAdapterTestDB(t *testing.T, tableName string) *pgx.Conn {
-	t.Helper()
-
-	ctx := context.Background()
-	dbURL := os.Getenv("TEST_DATABASE_URL")
-	if dbURL == "" {
-		dbURL = "postgres://postgres:postgres@localhost:5433/casbin_test?sslmode=disable"
-	}
-
-	conn, err := pgx.Connect(ctx, dbURL)
-	if err != nil {
-		t.Skipf("Could not connect to test database: %v", err)
-	}
-
-	if err := conn.Ping(ctx); err != nil {
-		conn.Close(ctx)
-		t.Skipf("Could not ping test database: %v", err)
-	}
-
-	// Clean up any existing test table
-	quotedTableName := pgx.Identifier{tableName}.Sanitize()
-	_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
-
-	t.Cleanup(func() {
-		_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
-		conn.Close(ctx)
-	})
-
-	return conn
-}
 
 func TestAddPolicies(t *testing.T) {
 	tests := []struct {
@@ -114,7 +81,7 @@ func TestAddPolicies(t *testing.T) {
 
 			ctx := context.Background()
 			tableName := fmt.Sprintf("casbin_test_add_batch_%s", tt.name)
-			conn := setupBatchAdapterTestDB(t, tableName)
+			conn := setupTestDB(t, tableName)
 
 			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
 			if err != nil {
@@ -238,7 +205,7 @@ func TestRemovePolicies(t *testing.T) {
 
 			ctx := context.Background()
 			tableName := fmt.Sprintf("casbin_test_remove_batch_%s", tt.name)
-			conn := setupBatchAdapterTestDB(t, tableName)
+			conn := setupTestDB(t, tableName)
 
 			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
 			if err != nil {
@@ -287,7 +254,7 @@ func TestAddPoliciesWithPartialDuplicates(t *testing.T) {
 
 	ctx := context.Background()
 	tableName := "casbin_test_add_batch_partial_duplicates"
-	conn := setupBatchAdapterTestDB(t, tableName)
+	conn := setupTestDB(t, tableName)
 
 	adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
 	if err != nil {

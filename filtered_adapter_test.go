@@ -1,48 +1,13 @@
 package pgxadapter_test
 
 import (
-	"context"
 	"fmt"
-	"os"
 	"slices"
 	"testing"
 
 	"github.com/casbin/casbin/v2/model"
-	"github.com/jackc/pgx/v5"
 	pgxadapter "github.com/noho-digital/casbin-pgx-adapter"
 )
-
-// setupFilteredAdapterTestDB creates a clean test database connection for filtered adapter tests
-func setupFilteredAdapterTestDB(t *testing.T, tableName string) *pgx.Conn {
-	t.Helper()
-
-	ctx := context.Background()
-	dbURL := os.Getenv("TEST_DATABASE_URL")
-	if dbURL == "" {
-		dbURL = "postgres://postgres:postgres@localhost:5433/casbin_test?sslmode=disable"
-	}
-
-	conn, err := pgx.Connect(ctx, dbURL)
-	if err != nil {
-		t.Skipf("Could not connect to test database: %v", err)
-	}
-
-	if err := conn.Ping(ctx); err != nil {
-		conn.Close(ctx)
-		t.Skipf("Could not ping test database: %v", err)
-	}
-
-	// Clean up any existing test table
-	quotedTableName := pgx.Identifier{tableName}.Sanitize()
-	_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
-
-	t.Cleanup(func() {
-		_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
-		conn.Close(ctx)
-	})
-
-	return conn
-}
 
 func TestLoadFilteredPolicy(t *testing.T) {
 	tests := []struct {
@@ -151,7 +116,7 @@ func TestLoadFilteredPolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_filtered_%s", tt.name)
-			conn := setupFilteredAdapterTestDB(t, tableName)
+			conn := setupTestDB(t, tableName)
 
 			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
 			if err != nil {
@@ -167,7 +132,7 @@ func TestLoadFilteredPolicy(t *testing.T) {
 			}
 
 			// Create model and load filtered policies
-			m, _ := model.NewModelFromString(pgxadapter.TestModelText)
+			m, _ := model.NewModelFromString(TestModelText)
 
 			err = adapter.LoadFilteredPolicy(m, tt.filter)
 
@@ -220,14 +185,14 @@ func TestLoadFilteredPolicyInvalidFilter(t *testing.T) {
 	t.Parallel()
 
 	tableName := "casbin_test_filtered_invalid"
-	conn := setupFilteredAdapterTestDB(t, tableName)
+	conn := setupTestDB(t, tableName)
 
 	adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
 	if err != nil {
 		t.Fatalf("Failed to create adapter: %v", err)
 	}
 
-	m, _ := model.NewModelFromString(pgxadapter.TestModelText)
+	m, _ := model.NewModelFromString(TestModelText)
 
 	// Try with invalid filter type
 	err = adapter.LoadFilteredPolicy(m, "invalid filter")
@@ -261,7 +226,7 @@ func TestIsFiltered(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_is_filtered_%s", tt.name)
-			conn := setupFilteredAdapterTestDB(t, tableName)
+			conn := setupTestDB(t, tableName)
 
 			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
 			if err != nil {
@@ -277,7 +242,7 @@ func TestIsFiltered(t *testing.T) {
 			}
 
 			// Create model and load filtered policies
-			m, _ := model.NewModelFromString(pgxadapter.TestModelText)
+			m, _ := model.NewModelFromString(TestModelText)
 
 			err = adapter.LoadFilteredPolicy(m, tt.filter)
 			if err != nil {

@@ -113,3 +113,18 @@ func (a *PgxAdapter) createTable() error {
 
 	return nil
 }
+
+// GetConn returns the underlying database connection
+func (a *PgxAdapter) GetConn() *pgx.Conn {
+	return a.conn
+}
+
+// GetTableName returns the table name used by the adapter
+func (a *PgxAdapter) GetTableName() string {
+	return a.tableName
+}
+
+// GetDatabase returns the database name used by the adapter
+func (a *PgxAdapter) GetDatabase() string {
+	return a.database
+}

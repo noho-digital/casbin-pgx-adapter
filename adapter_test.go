@@ -1,4 +1,4 @@
-package pgxadapter
+package pgxadapter_test
 
 import (
 	"context"
@@ -9,10 +9,11 @@ import (
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	"github.com/jackc/pgx/v5"
+	pgxadapter "github.com/noho-digital/casbin-pgx-adapter"
 )
 
-// setupAdapterTestDB creates a clean test database connection for adapter tests
-func setupAdapterTestDB(t *testing.T, tableName string) *pgx.Conn {
+// setupTestDB creates a clean test database connection for adapter tests
+func setupTestDB(t *testing.T, tableName string) *pgx.Conn {
 	t.Helper()
 
 	ctx := context.Background()
@@ -81,9 +82,9 @@ func TestLoadPolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_load_%s", tt.name)
-			conn := setupAdapterTestDB(t, tableName)
+			conn := setupTestDB(t, tableName)
 
-			adapter, err := NewAdapterWithConn(conn, WithTableName(tableName))
+			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
 			if err != nil {
 				t.Fatalf("Failed to create adapter: %v", err)
 			}
@@ -104,23 +105,7 @@ func TestLoadPolicy(t *testing.T) {
 			}
 
 			// Create model and load policies
-			modelText := `
-[request_definition]
-r = sub, obj, act
-
-[policy_definition]
-p = sub, obj, act
-
-[role_definition]
-g = _, _
-
-[policy_effect]
-e = some(where (p.eft == allow))
-
-[matchers]
-m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
-`
-			m, _ := model.NewModelFromString(modelText)
+			m, _ := model.NewModelFromString(TestModelText)
 
 			err = adapter.LoadPolicy(m)
 
@@ -210,31 +195,15 @@ func TestSavePolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_save_%s", tt.name)
-			conn := setupAdapterTestDB(t, tableName)
+			conn := setupTestDB(t, tableName)
 
-			adapter, err := NewAdapterWithConn(conn, WithTableName(tableName))
+			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
 			if err != nil {
 				t.Fatalf("Failed to create adapter: %v", err)
 			}
 
 			// Create model and enforcer
-			modelText := `
-[request_definition]
-r = sub, obj, act
-
-[policy_definition]
-p = sub, obj, act
-
-[role_definition]
-g = _, _
-
-[policy_effect]
-e = some(where (p.eft == allow))
-
-[matchers]
-m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
-`
-			m, _ := model.NewModelFromString(modelText)
+			m, _ := model.NewModelFromString(TestModelText)
 			e, err := casbin.NewEnforcer(m, adapter)
 			if err != nil {
 				t.Fatalf("Failed to create enforcer: %v", err)
@@ -344,9 +313,9 @@ func TestAddPolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_add_%s", tt.name)
-			conn := setupAdapterTestDB(t, tableName)
+			conn := setupTestDB(t, tableName)
 
-			adapter, err := NewAdapterWithConn(conn, WithTableName(tableName))
+			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
 			if err != nil {
 				t.Fatalf("Failed to create adapter: %v", err)
 			}
@@ -440,9 +409,9 @@ func TestRemovePolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_remove_%s", tt.name)
-			conn := setupAdapterTestDB(t, tableName)
+			conn := setupTestDB(t, tableName)
 
-			adapter, err := NewAdapterWithConn(conn, WithTableName(tableName))
+			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
 			if err != nil {
 				t.Fatalf("Failed to create adapter: %v", err)
 			}
@@ -557,9 +526,9 @@ func TestRemoveFilteredPolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_filter_%s", tt.name)
-			conn := setupAdapterTestDB(t, tableName)
+			conn := setupTestDB(t, tableName)
 
-			adapter, err := NewAdapterWithConn(conn, WithTableName(tableName))
+			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
 			if err != nil {
 				t.Fatalf("Failed to create adapter: %v", err)
 			}

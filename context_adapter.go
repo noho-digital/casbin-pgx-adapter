@@ -35,7 +35,7 @@ type ContextAdapter interface {
 func (a *PgxAdapter) LoadPolicyCtx(ctx context.Context, model model.Model) error {
 
 	q, args, err := a.psql.
-		Select("ptype", "v0", "v1", "v2", "v3", "v4", "v5").
+		Select(selectColumns...).
 		From(a.tableName).
 		OrderBy("id").
 		ToSql()
@@ -44,12 +44,7 @@ func (a *PgxAdapter) LoadPolicyCtx(ctx context.Context, model model.Model) error
 		return fmt.Errorf("failed to build query: %w", err)
 	}
 
-	var rows pgx.Rows
-	if a.pool != nil {
-		rows, err = a.pool.Query(ctx, q, args...)
-	} else if a.conn != nil {
-		rows, err = a.conn.Query(ctx, q, args...)
-	}
+	rows, err := a.conn.Query(ctx, q, args...)
 
 	if err != nil {
 		return fmt.Errorf("failed to query policies: %w", err)
@@ -99,7 +94,7 @@ func (a *PgxAdapter) LoadPolicyCtx(ctx context.Context, model model.Model) error
 func (a *PgxAdapter) SavePolicyCtx(ctx context.Context, model model.Model) error {
 
 	// Start a transaction
-	tx, err := a.beginTx(ctx)
+	tx, err := a.conn.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -134,7 +129,7 @@ func (a *PgxAdapter) SavePolicyCtx(ctx context.Context, model model.Model) error
 	// Batch insert all policies
 	if len(lines) > 0 {
 		insertBuilder := a.psql.Insert(a.tableName).
-			Columns("ptype", "v0", "v1", "v2", "v3", "v4", "v5")
+			Columns(insertColumns...)
 
 		for i, line := range lines {
 			vals := make([]any, 7)
@@ -185,7 +180,7 @@ func (a *PgxAdapter) AddPolicyCtx(ctx context.Context, sec string, ptype string,
 
 	sql, args, err := a.psql.
 		Insert(a.tableName).
-		Columns("ptype", "v0", "v1", "v2", "v3", "v4", "v5").
+		Columns(insertColumns...).
 		Values(vals...).
 		ToSql()
 
@@ -194,11 +189,7 @@ func (a *PgxAdapter) AddPolicyCtx(ctx context.Context, sec string, ptype string,
 	}
 
 	var result pgconn.CommandTag
-	if a.pool != nil {
-		result, err = a.pool.Exec(ctx, sql, args...)
-	} else if a.conn != nil {
-		result, err = a.conn.Exec(ctx, sql, args...)
-	}
+	result, err = a.conn.Exec(ctx, sql, args...)
 
 	if err != nil {
 		// Check if it's a unique constraint violation
@@ -222,7 +213,7 @@ func (a *PgxAdapter) RemovePolicyCtx(ctx context.Context, sec string, ptype stri
 
 	// Add conditions for each rule value
 	for i := range 6 {
-		col := fmt.Sprintf("v%d", i)
+		col := colParams[i]
 		if i < len(rule) && rule[i] != "" {
 			deleteBuilder = deleteBuilder.Where(sq.Eq{col: rule[i]})
 		} else {
@@ -236,11 +227,7 @@ func (a *PgxAdapter) RemovePolicyCtx(ctx context.Context, sec string, ptype stri
 	}
 
 	var result pgconn.CommandTag
-	if a.pool != nil {
-		result, err = a.pool.Exec(ctx, sql, args...)
-	} else if a.conn != nil {
-		result, err = a.conn.Exec(ctx, sql, args...)
-	}
+	result, err = a.conn.Exec(ctx, sql, args...)
 
 	if err != nil {
 		return fmt.Errorf("failed to remove policy: %w", err)
@@ -267,7 +254,7 @@ func (a *PgxAdapter) RemoveFilteredPolicyCtx(ctx context.Context, sec string, pt
 		if i+fieldIndex > 5 {
 			break
 		}
-		col := fmt.Sprintf("v%d", i+fieldIndex)
+		col := colParams[i+fieldIndex]
 		if fieldValues[i] != "" {
 			deleteBuilder = deleteBuilder.Where(sq.Eq{col: fieldValues[i]})
 		}
@@ -279,11 +266,7 @@ func (a *PgxAdapter) RemoveFilteredPolicyCtx(ctx context.Context, sec string, pt
 	}
 
 	var result pgconn.CommandTag
-	if a.pool != nil {
-		result, err = a.pool.Exec(ctx, sql, args...)
-	} else if a.conn != nil {
-		result, err = a.conn.Exec(ctx, sql, args...)
-	}
+	result, err = a.conn.Exec(ctx, sql, args...)
 
 	if err != nil {
 		return fmt.Errorf("failed to remove filtered policies: %w", err)

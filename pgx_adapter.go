@@ -6,7 +6,6 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -16,7 +15,6 @@ const (
 
 // PgxAdapter represents the pgx adapter for policy persistence
 type PgxAdapter struct {
-	pool      *pgxpool.Pool
 	conn      *pgx.Conn
 	tableName string
 	database  string
@@ -33,8 +31,8 @@ func WithTableName(tableName string) Option {
 	}
 }
 
-// WithDatabase sets a custom database name for the adapter
-func WithDatabase(database string) Option {
+// WithDatabaseName sets a custom database name for the adapter
+func WithDatabaseName(database string) Option {
 	return func(a *PgxAdapter) {
 		a.database = database
 	}
@@ -44,46 +42,18 @@ func WithDatabase(database string) Option {
 func NewAdapter(connStr string, opts ...Option) (*PgxAdapter, error) {
 	ctx := context.Background()
 
-	// Parse and connect to the database
-	config, err := pgxpool.ParseConfig(connStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse connection string: %w", err)
-	}
-
-	pool, err := pgxpool.NewWithConfig(ctx, config)
+	conn, err := pgx.Connect(ctx, connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
 
 	// Test the connection
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
+	if err := conn.Ping(ctx); err != nil {
+		conn.Close(ctx)
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	return NewAdapterWithPool(pool, opts...)
-}
-
-// NewAdapterWithPool creates a new adapter with an existing connection pool
-func NewAdapterWithPool(pool *pgxpool.Pool, opts ...Option) (*PgxAdapter, error) {
-	a := &PgxAdapter{
-		pool:      pool,
-		tableName: defaultTableName,
-		database:  defaultDatabase,
-		psql:      sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
-	}
-
-	// Apply options
-	for _, opt := range opts {
-		opt(a)
-	}
-
-	// Create table if it doesn't exist
-	if err := a.createTable(); err != nil {
-		return nil, fmt.Errorf("failed to create table: %w", err)
-	}
-
-	return a, nil
+	return NewAdapterWithConn(conn, opts...)
 }
 
 // NewAdapterWithConn creates a new adapter with an existing connection
@@ -131,43 +101,12 @@ func (a *PgxAdapter) createTable() error {
 		ON ` + quotedTableName + `(ptype, COALESCE(v0,''), COALESCE(v1,''), COALESCE(v2,''), COALESCE(v3,''), COALESCE(v4,''), COALESCE(v5,''))`
 
 	// Execute creation statements
-	var err error
-	if a.pool != nil {
-		_, err = a.pool.Exec(ctx, createTableSQL)
-		if err != nil {
-			return fmt.Errorf("failed to create table: %w", err)
-		}
-		_, err = a.pool.Exec(ctx, createIndexSQL)
-	} else if a.conn != nil {
-		_, err = a.conn.Exec(ctx, createTableSQL)
-		if err != nil {
-			return fmt.Errorf("failed to create table: %w", err)
-		}
-		_, err = a.conn.Exec(ctx, createIndexSQL)
+	if _, err := a.conn.Exec(ctx, createTableSQL); err != nil {
+		return fmt.Errorf("failed to create table: %w", err)
 	}
-
-	if err != nil {
+	if _, err := a.conn.Exec(ctx, createIndexSQL); err != nil {
 		return fmt.Errorf("failed to create index: %w", err)
 	}
 
 	return nil
-}
-
-// beginTx starts a transaction based on the connection type
-func (a *PgxAdapter) beginTx(ctx context.Context) (pgx.Tx, error) {
-	if a.pool != nil {
-		return a.pool.Begin(ctx)
-	}
-	if a.conn != nil {
-		return a.conn.Begin(ctx)
-	}
-	return nil, fmt.Errorf("no database connection available")
-}
-
-// Close closes the database connection
-func (a *PgxAdapter) Close() {
-	if a.pool != nil {
-		a.pool.Close()
-	}
-	// Note: conn is not closed as it may be managed externally
 }

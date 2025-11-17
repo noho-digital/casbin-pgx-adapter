@@ -49,9 +49,9 @@ func TestLoadPolicyCtx(t *testing.T) {
 
 			ctx := context.Background()
 			tableName := fmt.Sprintf("casbin_test_load_%s", tt.name)
-			pool := setupAdapterTestDB(t, tableName)
+			conn := setupAdapterTestDB(t, tableName)
 
-			adapter, err := NewAdapterWithPool(pool, WithTableName(tableName))
+			adapter, err := NewAdapterWithConn(conn, WithTableName(tableName))
 			if err != nil {
 				t.Fatalf("Failed to create adapter: %v", err)
 			}
@@ -105,7 +105,7 @@ m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
 			// Verify loaded policies count
 			var count int
 			quotedTableName := pgx.Identifier{tableName}.Sanitize()
-			err = pool.QueryRow(ctx, "SELECT COUNT(*) FROM "+quotedTableName).Scan(&count)
+			err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+quotedTableName).Scan(&count)
 			if err != nil {
 				t.Fatalf("Failed to count policies: %v", err)
 			}
@@ -178,9 +178,9 @@ func TestSavePolicyCtx(t *testing.T) {
 
 			ctx := context.Background()
 			tableName := fmt.Sprintf("casbin_test_save_%s", tt.name)
-			pool := setupAdapterTestDB(t, tableName)
+			conn := setupAdapterTestDB(t, tableName)
 
-			adapter, err := NewAdapterWithPool(pool, WithTableName(tableName))
+			adapter, err := NewAdapterWithConn(conn, WithTableName(tableName))
 			if err != nil {
 				t.Fatalf("Failed to create adapter: %v", err)
 			}
@@ -240,7 +240,7 @@ m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
 			// Verify saved policies
 			quotedTableName := pgx.Identifier{tableName}.Sanitize()
 			var pCount int
-			err = pool.QueryRow(ctx,
+			err = conn.QueryRow(ctx,
 				"SELECT COUNT(*) FROM "+quotedTableName+" WHERE ptype = 'p'",
 			).Scan(&pCount)
 			if err != nil {
@@ -252,7 +252,7 @@ m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
 			}
 
 			var gCount int
-			err = pool.QueryRow(ctx,
+			err = conn.QueryRow(ctx,
 				"SELECT COUNT(*) FROM "+quotedTableName+" WHERE ptype = 'g'",
 			).Scan(&gCount)
 			if err != nil {
@@ -312,9 +312,9 @@ func TestAddPolicyCtx(t *testing.T) {
 
 			ctx := context.Background()
 			tableName := fmt.Sprintf("casbin_test_add_%s", tt.name)
-			pool := setupAdapterTestDB(t, tableName)
+			conn := setupAdapterTestDB(t, tableName)
 
-			adapter, err := NewAdapterWithPool(pool, WithTableName(tableName))
+			adapter, err := NewAdapterWithConn(conn, WithTableName(tableName))
 			if err != nil {
 				t.Fatalf("Failed to create adapter: %v", err)
 			}
@@ -344,7 +344,7 @@ func TestAddPolicyCtx(t *testing.T) {
 			quotedTableName := pgx.Identifier{tableName}.Sanitize()
 			var count int
 			query := "SELECT COUNT(*) FROM " + quotedTableName + " WHERE ptype = $1"
-			err = pool.QueryRow(ctx, query, tt.ptype).Scan(&count)
+			err = conn.QueryRow(ctx, query, tt.ptype).Scan(&count)
 			if err != nil {
 				t.Fatalf("Failed to verify policy: %v", err)
 			}
@@ -408,9 +408,9 @@ func TestRemovePolicyCtx(t *testing.T) {
 
 			ctx := context.Background()
 			tableName := fmt.Sprintf("casbin_test_remove_%s", tt.name)
-			pool := setupAdapterTestDB(t, tableName)
+			conn := setupAdapterTestDB(t, tableName)
 
-			adapter, err := NewAdapterWithPool(pool, WithTableName(tableName))
+			adapter, err := NewAdapterWithConn(conn, WithTableName(tableName))
 			if err != nil {
 				t.Fatalf("Failed to create adapter: %v", err)
 			}
@@ -440,7 +440,7 @@ func TestRemovePolicyCtx(t *testing.T) {
 			quotedTableName := pgx.Identifier{tableName}.Sanitize()
 			var count int
 			query := "SELECT COUNT(*) FROM " + quotedTableName
-			err = pool.QueryRow(ctx, query).Scan(&count)
+			err = conn.QueryRow(ctx, query).Scan(&count)
 			if err != nil {
 				t.Fatalf("Failed to count remaining policies: %v", err)
 			}
@@ -525,9 +525,9 @@ func TestRemoveFilteredPolicyCtx(t *testing.T) {
 
 			ctx := context.Background()
 			tableName := fmt.Sprintf("casbin_test_filter_%s", tt.name)
-			pool := setupAdapterTestDB(t, tableName)
+			conn := setupAdapterTestDB(t, tableName)
 
-			adapter, err := NewAdapterWithPool(pool, WithTableName(tableName))
+			adapter, err := NewAdapterWithConn(conn, WithTableName(tableName))
 			if err != nil {
 				t.Fatalf("Failed to create adapter: %v", err)
 			}
@@ -557,7 +557,7 @@ func TestRemoveFilteredPolicyCtx(t *testing.T) {
 			quotedTableName := pgx.Identifier{tableName}.Sanitize()
 			var count int
 			query := "SELECT COUNT(*) FROM " + quotedTableName
-			err = pool.QueryRow(ctx, query).Scan(&count)
+			err = conn.QueryRow(ctx, query).Scan(&count)
 			if err != nil {
 				t.Fatalf("Failed to count remaining policies: %v", err)
 			}

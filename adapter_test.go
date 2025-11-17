@@ -9,39 +9,38 @@ import (
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // setupAdapterTestDB creates a clean test database connection for adapter tests
-func setupAdapterTestDB(t *testing.T, tableName string) *pgxpool.Pool {
+func setupAdapterTestDB(t *testing.T, tableName string) *pgx.Conn {
 	t.Helper()
 
 	ctx := context.Background()
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://postgres:postgres@localhost:5432/casbin_test?sslmode=disable"
+		dbURL = "postgres://postgres:postgres@localhost:5433/casbin_test?sslmode=disable"
 	}
 
-	pool, err := pgxpool.New(ctx, dbURL)
+	conn, err := pgx.Connect(ctx, dbURL)
 	if err != nil {
 		t.Skipf("Could not connect to test database: %v", err)
 	}
 
-	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
+	if err := conn.Ping(ctx); err != nil {
+		conn.Close(ctx)
 		t.Skipf("Could not ping test database: %v", err)
 	}
 
 	// Clean up any existing test table
 	quotedTableName := pgx.Identifier{tableName}.Sanitize()
-	_, _ = pool.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
+	_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
 
 	t.Cleanup(func() {
-		_, _ = pool.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
-		pool.Close()
+		_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
+		conn.Close(ctx)
 	})
 
-	return pool
+	return conn
 }
 
 func TestLoadPolicy(t *testing.T) {
@@ -82,9 +81,9 @@ func TestLoadPolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_load_%s", tt.name)
-			pool := setupAdapterTestDB(t, tableName)
+			conn := setupAdapterTestDB(t, tableName)
 
-			adapter, err := NewAdapterWithPool(pool, WithTableName(tableName))
+			adapter, err := NewAdapterWithConn(conn, WithTableName(tableName))
 			if err != nil {
 				t.Fatalf("Failed to create adapter: %v", err)
 			}
@@ -139,7 +138,7 @@ m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
 			// Verify loaded policies count
 			var count int
 			quotedTableName := pgx.Identifier{tableName}.Sanitize()
-			err = pool.QueryRow(ctx, "SELECT COUNT(*) FROM "+quotedTableName).Scan(&count)
+			err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+quotedTableName).Scan(&count)
 			if err != nil {
 				t.Fatalf("Failed to count policies: %v", err)
 			}
@@ -211,9 +210,9 @@ func TestSavePolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_save_%s", tt.name)
-			pool := setupAdapterTestDB(t, tableName)
+			conn := setupAdapterTestDB(t, tableName)
 
-			adapter, err := NewAdapterWithPool(pool, WithTableName(tableName))
+			adapter, err := NewAdapterWithConn(conn, WithTableName(tableName))
 			if err != nil {
 				t.Fatalf("Failed to create adapter: %v", err)
 			}
@@ -274,7 +273,7 @@ m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
 			ctx := context.Background()
 			quotedTableName := pgx.Identifier{tableName}.Sanitize()
 			var pCount int
-			err = pool.QueryRow(ctx,
+			err = conn.QueryRow(ctx,
 				"SELECT COUNT(*) FROM "+quotedTableName+" WHERE ptype = 'p'",
 			).Scan(&pCount)
 			if err != nil {
@@ -286,7 +285,7 @@ m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
 			}
 
 			var gCount int
-			err = pool.QueryRow(ctx,
+			err = conn.QueryRow(ctx,
 				"SELECT COUNT(*) FROM "+quotedTableName+" WHERE ptype = 'g'",
 			).Scan(&gCount)
 			if err != nil {
@@ -345,9 +344,9 @@ func TestAddPolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_add_%s", tt.name)
-			pool := setupAdapterTestDB(t, tableName)
+			conn := setupAdapterTestDB(t, tableName)
 
-			adapter, err := NewAdapterWithPool(pool, WithTableName(tableName))
+			adapter, err := NewAdapterWithConn(conn, WithTableName(tableName))
 			if err != nil {
 				t.Fatalf("Failed to create adapter: %v", err)
 			}
@@ -378,7 +377,7 @@ func TestAddPolicy(t *testing.T) {
 			quotedTableName := pgx.Identifier{tableName}.Sanitize()
 			var count int
 			query := "SELECT COUNT(*) FROM " + quotedTableName + " WHERE ptype = $1"
-			err = pool.QueryRow(ctx, query, tt.ptype).Scan(&count)
+			err = conn.QueryRow(ctx, query, tt.ptype).Scan(&count)
 			if err != nil {
 				t.Fatalf("Failed to verify policy: %v", err)
 			}
@@ -441,9 +440,9 @@ func TestRemovePolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_remove_%s", tt.name)
-			pool := setupAdapterTestDB(t, tableName)
+			conn := setupAdapterTestDB(t, tableName)
 
-			adapter, err := NewAdapterWithPool(pool, WithTableName(tableName))
+			adapter, err := NewAdapterWithConn(conn, WithTableName(tableName))
 			if err != nil {
 				t.Fatalf("Failed to create adapter: %v", err)
 			}
@@ -474,7 +473,7 @@ func TestRemovePolicy(t *testing.T) {
 			quotedTableName := pgx.Identifier{tableName}.Sanitize()
 			var count int
 			query := "SELECT COUNT(*) FROM " + quotedTableName
-			err = pool.QueryRow(ctx, query).Scan(&count)
+			err = conn.QueryRow(ctx, query).Scan(&count)
 			if err != nil {
 				t.Fatalf("Failed to count remaining policies: %v", err)
 			}
@@ -558,9 +557,9 @@ func TestRemoveFilteredPolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_filter_%s", tt.name)
-			pool := setupAdapterTestDB(t, tableName)
+			conn := setupAdapterTestDB(t, tableName)
 
-			adapter, err := NewAdapterWithPool(pool, WithTableName(tableName))
+			adapter, err := NewAdapterWithConn(conn, WithTableName(tableName))
 			if err != nil {
 				t.Fatalf("Failed to create adapter: %v", err)
 			}
@@ -591,7 +590,7 @@ func TestRemoveFilteredPolicy(t *testing.T) {
 			quotedTableName := pgx.Identifier{tableName}.Sanitize()
 			var count int
 			query := "SELECT COUNT(*) FROM " + quotedTableName
-			err = pool.QueryRow(ctx, query).Scan(&count)
+			err = conn.QueryRow(ctx, query).Scan(&count)
 			if err != nil {
 				t.Fatalf("Failed to count remaining policies: %v", err)
 			}

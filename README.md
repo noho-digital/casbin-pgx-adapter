@@ -42,7 +42,7 @@ func main() {
     // Create the adapter with optional configuration
     adapter, err := pgxadapter.NewAdapter(connStr,
         pgxadapter.WithTableName("my_casbin_rules"), // Optional: custom table name
-        pgxadapter.WithDatabase("my_casbin_db"),      // Optional: custom database name
+        pgxadapter.WithDatabaseName("my_casbin_db"), // Optional: custom database name
     )
     if err != nil {
         log.Fatal("Failed to create adapter:", err)

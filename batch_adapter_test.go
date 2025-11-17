@@ -42,7 +42,7 @@ func setupBatchAdapterTestDB(t *testing.T, tableName string) *pgx.Conn {
 	return conn
 }
 
-func TestAddPoliciesCtx(t *testing.T) {
+func TestAddPolicies(t *testing.T) {
 	tests := []struct {
 		name          string
 		sec           string
@@ -65,10 +65,10 @@ func TestAddPoliciesCtx(t *testing.T) {
 			expectedCount: 3,
 		},
 		{
-			name:  "add_empty_rules",
-			sec:   "p",
-			ptype: "p",
-			rules: [][]string{},
+			name:          "add_empty_rules",
+			sec:           "p",
+			ptype:         "p",
+			rules:         [][]string{},
 			wantErr:       false,
 			expectedCount: 0,
 		},
@@ -121,7 +121,7 @@ func TestAddPoliciesCtx(t *testing.T) {
 				t.Fatalf("Failed to create adapter: %v", err)
 			}
 
-			err = adapter.AddPoliciesCtx(ctx, tt.sec, tt.ptype, tt.rules)
+			err = adapter.AddPolicies(tt.sec, tt.ptype, tt.rules)
 
 			if tt.wantErr {
 				if err == nil {
@@ -150,7 +150,7 @@ func TestAddPoliciesCtx(t *testing.T) {
 	}
 }
 
-func TestRemovePoliciesCtx(t *testing.T) {
+func TestRemovePolicies(t *testing.T) {
 	tests := []struct {
 		name          string
 		setupPolicies [][]string
@@ -253,7 +253,7 @@ func TestRemovePoliciesCtx(t *testing.T) {
 				}
 			}
 
-			err = adapter.RemovePoliciesCtx(ctx, tt.sec, tt.ptype, tt.rules)
+			err = adapter.RemovePolicies(tt.sec, tt.ptype, tt.rules)
 
 			if tt.wantErr {
 				if err == nil {
@@ -282,7 +282,7 @@ func TestRemovePoliciesCtx(t *testing.T) {
 	}
 }
 
-func TestAddPoliciesCtxWithPartialDuplicates(t *testing.T) {
+func TestAddPoliciesWithPartialDuplicates(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -307,7 +307,7 @@ func TestAddPoliciesCtxWithPartialDuplicates(t *testing.T) {
 		{"charlie", "data3", "read"},
 	}
 
-	err = adapter.AddPoliciesCtx(ctx, "p", "p", rules)
+	err = adapter.AddPolicies("p", "p", rules)
 
 	if err == nil {
 		t.Errorf("AddPoliciesCtx() expected error for partial duplicates but got none")

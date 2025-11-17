@@ -81,7 +81,7 @@ func main() {
 This adapter implements the following Casbin adapter interfaces:
 
 - `Adapter` - Standard Casbin adapter interface - ✅
-- `ContextAdapter` - Context-aware operations - ⏳️
+- `ContextAdapter` - Context-aware operations - ✅
 - `BatchAdapter` - Batch add/remove operations - ⏳️
 - `FilteredAdapter` - Policy filtering support - ⏳️
 - `UpdatableAdapter` - Policy update operations - ⏳️

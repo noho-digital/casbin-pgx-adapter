@@ -3,6 +3,7 @@ package pgxadapter
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
@@ -15,10 +16,12 @@ const (
 
 // PgxAdapter represents the pgx adapter for policy persistence
 type PgxAdapter struct {
-	conn      *pgx.Conn
-	tableName string
-	database  string
-	psql      sq.StatementBuilderType
+	conn       *pgx.Conn
+	tableName  string
+	database   string
+	psql       sq.StatementBuilderType
+	isFiltered bool
+	mu         sync.RWMutex
 }
 
 // Option is a function that configures the adapter

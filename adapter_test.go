@@ -104,23 +104,7 @@ func TestLoadPolicy(t *testing.T) {
 			}
 
 			// Create model and load policies
-			modelText := `
-[request_definition]
-r = sub, obj, act
-
-[policy_definition]
-p = sub, obj, act
-
-[role_definition]
-g = _, _
-
-[policy_effect]
-e = some(where (p.eft == allow))
-
-[matchers]
-m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
-`
-			m, _ := model.NewModelFromString(modelText)
+			m, _ := model.NewModelFromString(TestModelText)
 
 			err = adapter.LoadPolicy(m)
 
@@ -218,23 +202,7 @@ func TestSavePolicy(t *testing.T) {
 			}
 
 			// Create model and enforcer
-			modelText := `
-[request_definition]
-r = sub, obj, act
-
-[policy_definition]
-p = sub, obj, act
-
-[role_definition]
-g = _, _
-
-[policy_effect]
-e = some(where (p.eft == allow))
-
-[matchers]
-m = g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act
-`
-			m, _ := model.NewModelFromString(modelText)
+			m, _ := model.NewModelFromString(TestModelText)
 			e, err := casbin.NewEnforcer(m, adapter)
 			if err != nil {
 				t.Fatalf("Failed to create enforcer: %v", err)

@@ -3,6 +3,7 @@ package pgxadapter
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	sq "github.com/Masterminds/squirrel"
@@ -21,6 +22,7 @@ type PgxAdapter struct {
 	database   string
 	psql       sq.StatementBuilderType
 	isFiltered bool
+	indexes    [][]string
 	mu         sync.RWMutex
 }
 
@@ -38,6 +40,17 @@ func WithTableName(tableName string) Option {
 func WithDatabaseName(database string) Option {
 	return func(a *PgxAdapter) {
 		a.database = database
+	}
+}
+
+// WithIndex adds a composite index on the specified columns.
+// Valid columns are: ptype, v0, v1, v2, v3, v4, v5.
+// Can be called multiple times to add multiple indexes.
+func WithIndex(columns ...string) Option {
+	return func(a *PgxAdapter) {
+		if len(columns) > 0 {
+			a.indexes = append(a.indexes, columns)
+		}
 	}
 }
 
@@ -100,7 +113,7 @@ func (a *PgxAdapter) createTable() error {
 		v5 VARCHAR(100)
 	)`
 
-	createIndexSQL := `CREATE UNIQUE INDEX IF NOT EXISTS ` + quotedIndexName + ` 
+	createIndexSQL := `CREATE UNIQUE INDEX IF NOT EXISTS ` + quotedIndexName + `
 		ON ` + quotedTableName + `(ptype, COALESCE(v0,''), COALESCE(v1,''), COALESCE(v2,''), COALESCE(v3,''), COALESCE(v4,''), COALESCE(v5,''))`
 
 	// Execute creation statements
@@ -109,6 +122,33 @@ func (a *PgxAdapter) createTable() error {
 	}
 	if _, err := a.conn.Exec(ctx, createIndexSQL); err != nil {
 		return fmt.Errorf("failed to create index: %w", err)
+	}
+
+	// Create custom indexes
+	for _, columns := range a.indexes {
+		if err := a.createIndex(ctx, columns); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (a *PgxAdapter) createIndex(ctx context.Context, columns []string) error {
+	quotedTableName := pgx.Identifier{a.tableName}.Sanitize()
+	indexName := "idx_" + a.tableName + "_" + strings.Join(columns, "_")
+	quotedIndexName := pgx.Identifier{indexName}.Sanitize()
+
+	var quotedColumns []string
+	for _, col := range columns {
+		quotedColumns = append(quotedColumns, pgx.Identifier{col}.Sanitize())
+	}
+
+	createIndexSQL := `CREATE INDEX IF NOT EXISTS ` + quotedIndexName +
+		` ON ` + quotedTableName + `(` + strings.Join(quotedColumns, ", ") + `)`
+
+	if _, err := a.conn.Exec(ctx, createIndexSQL); err != nil {
+		return fmt.Errorf("failed to create index %s: %w", indexName, err)
 	}
 
 	return nil

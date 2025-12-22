@@ -264,3 +264,87 @@ func TestWithDatabaseName(t *testing.T) {
 		})
 	}
 }
+
+func TestWithIndex(t *testing.T) {
+	tests := []struct {
+		name            string
+		indexes         [][]string
+		expectedIndexes []string
+	}{
+		{
+			name: "single_column_index",
+			indexes: [][]string{
+				{"v0"},
+			},
+			expectedIndexes: []string{"idx_test_with_index_single_column_index_v0"},
+		},
+		{
+			name: "composite_index",
+			indexes: [][]string{
+				{"v0", "v1"},
+			},
+			expectedIndexes: []string{"idx_test_with_index_composite_index_v0_v1"},
+		},
+		{
+			name: "multiple_indexes",
+			indexes: [][]string{
+				{"v0"},
+				{"v1", "v2"},
+				{"ptype", "v0", "v1"},
+			},
+			expectedIndexes: []string{
+				"idx_test_with_index_multiple_indexes_v0",
+				"idx_test_with_index_multiple_indexes_v1_v2",
+				"idx_test_with_index_multiple_indexes_ptype_v0_v1",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			dbURL := os.Getenv("TEST_DATABASE_URL")
+			if dbURL == "" {
+				dbURL = "postgres://postgres:postgres@localhost:5433/casbin_test?sslmode=disable"
+			}
+
+			conn, err := pgx.Connect(ctx, dbURL)
+			if err != nil {
+				t.Skipf("Could not connect to test database: %v", err)
+			}
+			defer conn.Close(ctx)
+
+			testTableName := fmt.Sprintf("test_with_index_%s", tt.name)
+			quotedTableName := pgx.Identifier{testTableName}.Sanitize()
+			_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
+			defer func() {
+				_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
+			}()
+
+			opts := []pgxadapter.Option{pgxadapter.WithTableName(testTableName)}
+			for _, idx := range tt.indexes {
+				opts = append(opts, pgxadapter.WithIndex(idx...))
+			}
+
+			_, err = pgxadapter.NewAdapterWithConn(conn, opts...)
+			if err != nil {
+				t.Fatalf("Failed to create adapter: %v", err)
+			}
+
+			for _, expectedIndex := range tt.expectedIndexes {
+				var exists bool
+				err = conn.QueryRow(ctx,
+					"SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE tablename = $1 AND indexname = $2)",
+					testTableName, expectedIndex).Scan(&exists)
+				if err != nil {
+					t.Fatalf("Failed to query index existence: %v", err)
+				}
+				if !exists {
+					t.Errorf("Expected index %s to exist on table %s", expectedIndex, testTableName)
+				}
+			}
+		})
+	}
+}

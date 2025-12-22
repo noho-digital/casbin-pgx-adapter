@@ -13,7 +13,7 @@ func TestLoadFilteredPolicy(t *testing.T) {
 	tests := []struct {
 		name             string
 		setupPolicies    [][]string
-		filter           pgxadapter.Filter
+		filter           any
 		expectedPolicies [][]string
 		wantErr          bool
 	}{
@@ -108,6 +108,111 @@ func TestLoadFilteredPolicy(t *testing.T) {
 			},
 			expectedPolicies: [][]string{},
 			wantErr:          false,
+		},
+		{
+			name: "batch_filter_or_subjects",
+			setupPolicies: [][]string{
+				{"p", "alice", "data1", "read"},
+				{"p", "bob", "data2", "write"},
+				{"p", "charlie", "data3", "delete"},
+			},
+			filter: pgxadapter.BatchFilter{
+				Filters: []pgxadapter.Filter{
+					{V0: []string{"alice"}},
+					{V0: []string{"bob"}},
+				},
+			},
+			expectedPolicies: [][]string{
+				{"alice", "data1", "read"},
+				{"bob", "data2", "write"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "batch_filter_different_conditions",
+			setupPolicies: [][]string{
+				{"p", "alice", "data1", "read"},
+				{"p", "alice", "data2", "write"},
+				{"p", "bob", "data1", "read"},
+				{"p", "bob", "data2", "delete"},
+			},
+			filter: pgxadapter.BatchFilter{
+				Filters: []pgxadapter.Filter{
+					{V0: []string{"alice"}, V1: []string{"data1"}},
+					{V0: []string{"bob"}, V2: []string{"delete"}},
+				},
+			},
+			expectedPolicies: [][]string{
+				{"alice", "data1", "read"},
+				{"bob", "data2", "delete"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "batch_filter_with_ptype",
+			setupPolicies: [][]string{
+				{"p", "alice", "data1", "read"},
+				{"g", "alice", "admin"},
+				{"g", "bob", "member"},
+			},
+			filter: pgxadapter.BatchFilter{
+				Filters: []pgxadapter.Filter{
+					{Ptype: []string{"p"}},
+					{Ptype: []string{"g"}, V0: []string{"alice"}},
+				},
+			},
+			expectedPolicies: [][]string{
+				{"alice", "data1", "read"},
+				{"alice", "admin"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "batch_filter_pointer",
+			setupPolicies: [][]string{
+				{"p", "alice", "data1", "read"},
+				{"p", "bob", "data2", "write"},
+			},
+			filter: &pgxadapter.BatchFilter{
+				Filters: []pgxadapter.Filter{
+					{V0: []string{"alice"}},
+				},
+			},
+			expectedPolicies: [][]string{
+				{"alice", "data1", "read"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "filter_slice",
+			setupPolicies: [][]string{
+				{"p", "alice", "data1", "read"},
+				{"p", "bob", "data2", "write"},
+				{"p", "charlie", "data3", "delete"},
+			},
+			filter: []pgxadapter.Filter{
+				{V0: []string{"alice"}},
+				{V0: []string{"charlie"}},
+			},
+			expectedPolicies: [][]string{
+				{"alice", "data1", "read"},
+				{"charlie", "data3", "delete"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "filter_pointer",
+			setupPolicies: [][]string{
+				{"p", "alice", "data1", "read"},
+				{"p", "bob", "data2", "write"},
+			},
+			filter: &pgxadapter.Filter{
+				V0: []string{"alice"},
+			},
+			expectedPolicies: [][]string{
+				{"alice", "data1", "read"},
+			},
+			wantErr: false,
 		},
 	}
 

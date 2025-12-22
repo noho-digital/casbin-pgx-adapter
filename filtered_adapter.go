@@ -22,6 +22,12 @@ type Filter struct {
 	V5    []string
 }
 
+// BatchFilter wraps multiple filters for OR-based filtering.
+// Each filter in the batch is applied separately, and results are combined.
+type BatchFilter struct {
+	Filters []Filter
+}
+
 // LoadFilteredPolicy loads only policy rules that match the filter
 func (a *PgxAdapter) LoadFilteredPolicy(model model.Model, filter any) error {
 	return a.LoadFilteredPolicyCtx(context.Background(), model, filter)
@@ -32,7 +38,8 @@ func (a *PgxAdapter) IsFiltered() bool {
 	return a.IsFilteredCtx(context.Background())
 }
 
-// LoadFilteredPolicyCtx loads only policy rules that match the filter
+// LoadFilteredPolicyCtx loads only policy rules that match the filter.
+// Supports Filter for single filter or BatchFilter for OR-based filtering.
 func (a *PgxAdapter) LoadFilteredPolicyCtx(ctx context.Context, model model.Model, filter any) error {
 	if filter == nil {
 		a.mu.Lock()
@@ -41,8 +48,19 @@ func (a *PgxAdapter) LoadFilteredPolicyCtx(ctx context.Context, model model.Mode
 		return a.LoadPolicyCtx(ctx, model)
 	}
 
-	filterValue, ok := filter.(Filter)
-	if !ok {
+	var filters []Filter
+	switch f := filter.(type) {
+	case Filter:
+		filters = []Filter{f}
+	case *Filter:
+		filters = []Filter{*f}
+	case BatchFilter:
+		filters = f.Filters
+	case *BatchFilter:
+		filters = f.Filters
+	case []Filter:
+		filters = f
+	default:
 		return fmt.Errorf("invalid filter type")
 	}
 
@@ -50,12 +68,21 @@ func (a *PgxAdapter) LoadFilteredPolicyCtx(ctx context.Context, model model.Mode
 	a.isFiltered = true
 	a.mu.Unlock()
 
+	for _, filterValue := range filters {
+		if err := a.loadFilteredPolicies(ctx, model, filterValue); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (a *PgxAdapter) loadFilteredPolicies(ctx context.Context, model model.Model, filterValue Filter) error {
 	query := a.psql.
 		Select(selectColumns...).
 		From(a.tableName).
 		OrderBy("id")
 
-	// Apply filter conditions
 	if len(filterValue.Ptype) > 0 {
 		query = query.Where(sq.Eq{"ptype": filterValue.Ptype})
 	}

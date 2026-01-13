@@ -51,7 +51,7 @@ func (a *PgxAdapter) LoadPolicyCtx(ctx context.Context, model model.Model) error
 		return fmt.Errorf("failed to build query: %w", err)
 	}
 
-	rows, err := a.conn.Query(ctx, q, args...)
+	rows, err := a.db.Query(ctx, q, args...)
 
 	if err != nil {
 		return fmt.Errorf("failed to query policies: %w", err)
@@ -101,7 +101,7 @@ func (a *PgxAdapter) LoadPolicyCtx(ctx context.Context, model model.Model) error
 func (a *PgxAdapter) SavePolicyCtx(ctx context.Context, model model.Model) error {
 
 	// Start a transaction
-	tx, err := a.conn.Begin(ctx)
+	tx, err := a.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -196,7 +196,7 @@ func (a *PgxAdapter) AddPolicyCtx(ctx context.Context, sec string, ptype string,
 	}
 
 	var result pgconn.CommandTag
-	result, err = a.conn.Exec(ctx, sql, args...)
+	result, err = a.db.Exec(ctx, sql, args...)
 
 	if err != nil {
 		// Check if it's a unique constraint violation
@@ -234,7 +234,7 @@ func (a *PgxAdapter) RemovePolicyCtx(ctx context.Context, sec string, ptype stri
 	}
 
 	var result pgconn.CommandTag
-	result, err = a.conn.Exec(ctx, sql, args...)
+	result, err = a.db.Exec(ctx, sql, args...)
 
 	if err != nil {
 		return fmt.Errorf("failed to remove policy: %w", err)
@@ -273,7 +273,7 @@ func (a *PgxAdapter) RemoveFilteredPolicyCtx(ctx context.Context, sec string, pt
 	}
 
 	var result pgconn.CommandTag
-	result, err = a.conn.Exec(ctx, sql, args...)
+	result, err = a.db.Exec(ctx, sql, args...)
 
 	if err != nil {
 		return fmt.Errorf("failed to remove filtered policies: %w", err)

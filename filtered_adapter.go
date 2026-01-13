@@ -110,7 +110,7 @@ func (a *PgxAdapter) loadFilteredPolicies(ctx context.Context, model model.Model
 		return fmt.Errorf("failed to build query: %w", err)
 	}
 
-	rows, err := a.conn.Query(ctx, sqlQuery, args...)
+	rows, err := a.db.Query(ctx, sqlQuery, args...)
 	if err != nil {
 		return fmt.Errorf("failed to query policies: %w", err)
 	}

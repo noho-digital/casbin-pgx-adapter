@@ -49,7 +49,7 @@ func (a *PgxAdapter) AddPoliciesCtx(ctx context.Context, sec string, ptype strin
 	}
 
 	var result pgconn.CommandTag
-	result, err = a.conn.Exec(ctx, sql, args...)
+	result, err = a.db.Exec(ctx, sql, args...)
 
 	if err != nil {
 		// Check if it's a unique constraint violation
@@ -73,7 +73,7 @@ func (a *PgxAdapter) RemovePoliciesCtx(ctx context.Context, sec string, ptype st
 	}
 
 	// Start a transaction
-	tx, err := a.conn.Begin(ctx)
+	tx, err := a.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}

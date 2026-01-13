@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	pgxadapter "github.com/noho-digital/casbin-pgx-adapter"
 )
 
@@ -32,17 +33,26 @@ func TestNewAdapter(t *testing.T) {
 	tests := []struct {
 		name      string
 		tableName string
+		usePool   bool
 		wantErr   bool
 		errMsg    string
 	}{
 		{
 			name:      "successful_creation_with_default_table",
 			tableName: "casbin_test_new_adapter",
+			usePool:   false,
 			wantErr:   false,
 		},
 		{
 			name:      "successful_creation_with_custom_table",
 			tableName: "custom_casbin_table",
+			usePool:   false,
+			wantErr:   false,
+		},
+		{
+			name:      "successful_creation_with_pool",
+			tableName: "casbin_test_with_pool",
+			usePool:   true,
 			wantErr:   false,
 		},
 	}
@@ -56,7 +66,12 @@ func TestNewAdapter(t *testing.T) {
 				dbURL = "postgres://postgres:postgres@localhost:5433/casbin_test?sslmode=disable"
 			}
 
-			adapter, err := pgxadapter.NewAdapter(dbURL, pgxadapter.WithTableName(tt.tableName))
+			opts := []pgxadapter.Option{pgxadapter.WithTableName(tt.tableName)}
+			if tt.usePool {
+				opts = append(opts, pgxadapter.WithPool())
+			}
+
+			adapter, err := pgxadapter.NewAdapter(dbURL, opts...)
 
 			if tt.wantErr {
 				if err == nil {
@@ -72,16 +87,35 @@ func TestNewAdapter(t *testing.T) {
 			t.Cleanup(func() {
 				if adapter != nil {
 					ctx := context.Background()
-					if adapter.GetConn() != nil {
-						quotedTableName := pgx.Identifier{tt.tableName}.Sanitize()
+					quotedTableName := pgx.Identifier{tt.tableName}.Sanitize()
+					if adapter.GetPool() != nil {
+						_, _ = adapter.GetPool().Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
+						adapter.GetPool().Close()
+					} else if adapter.GetConn() != nil {
 						_, _ = adapter.GetConn().Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
+						adapter.GetConn().Close(ctx)
 					}
-					adapter.GetConn().Close(ctx)
 				}
 			})
 
 			if adapter.GetTableName() != tt.tableName {
 				t.Errorf("pgxadapter.NewAdapter() tableName = %v, want %v", adapter.GetTableName(), tt.tableName)
+			}
+
+			if tt.usePool {
+				if adapter.GetPool() == nil {
+					t.Error("pgxadapter.NewAdapter() with WithPool() expected pool to be set")
+				}
+				if adapter.GetConn() != nil {
+					t.Error("pgxadapter.NewAdapter() with WithPool() expected conn to be nil")
+				}
+			} else {
+				if adapter.GetConn() == nil {
+					t.Error("pgxadapter.NewAdapter() expected conn to be set")
+				}
+				if adapter.GetPool() != nil {
+					t.Error("pgxadapter.NewAdapter() expected pool to be nil")
+				}
 			}
 		})
 	}
@@ -155,6 +189,153 @@ func TestNewAdapterWithConn(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNewAdapterWithPool(t *testing.T) {
+	tests := []struct {
+		name      string
+		tableName string
+		wantErr   bool
+	}{
+		{
+			name:      "successful_creation_with_pool",
+			tableName: "casbin_test_with_pool_conn",
+			wantErr:   false,
+		},
+		{
+			name:      "successful_creation_with_custom_table",
+			tableName: "custom_pool_table",
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			dbURL := os.Getenv("TEST_DATABASE_URL")
+			if dbURL == "" {
+				dbURL = "postgres://postgres:postgres@localhost:5433/casbin_test?sslmode=disable"
+			}
+
+			pool, err := pgxpool.New(ctx, dbURL)
+			if err != nil {
+				t.Skipf("Could not create pool for test database: %v", err)
+			}
+
+			if err := pool.Ping(ctx); err != nil {
+				pool.Close()
+				t.Skipf("Could not ping test database: %v", err)
+			}
+
+			// Clean up any existing test table
+			quotedTableName := pgx.Identifier{tt.tableName}.Sanitize()
+			_, _ = pool.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
+
+			t.Cleanup(func() {
+				_, _ = pool.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
+				pool.Close()
+			})
+
+			adapter, err := pgxadapter.NewAdapterWithPool(pool, pgxadapter.WithTableName(tt.tableName))
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("pgxadapter.NewAdapterWithPool() expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("pgxadapter.NewAdapterWithPool() unexpected error: %v", err)
+			}
+
+			if adapter.GetTableName() != tt.tableName {
+				t.Errorf("pgxadapter.NewAdapterWithPool() tableName = %v, want %v", adapter.GetTableName(), tt.tableName)
+			}
+
+			if adapter.GetPool() == nil {
+				t.Error("pgxadapter.NewAdapterWithPool() expected pool to be set")
+			}
+
+			if adapter.GetConn() != nil {
+				t.Error("pgxadapter.NewAdapterWithPool() expected conn to be nil")
+			}
+
+			if adapter.GetDB() == nil {
+				t.Error("pgxadapter.NewAdapterWithPool() expected db to be set")
+			}
+		})
+	}
+}
+
+func TestGetDB(t *testing.T) {
+	t.Run("returns_db_for_conn_adapter", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+		dbURL := os.Getenv("TEST_DATABASE_URL")
+		if dbURL == "" {
+			dbURL = "postgres://postgres:postgres@localhost:5433/casbin_test?sslmode=disable"
+		}
+
+		conn, err := pgx.Connect(ctx, dbURL)
+		if err != nil {
+			t.Skipf("Could not connect to test database: %v", err)
+		}
+
+		tableName := "test_getdb_conn"
+		quotedTableName := pgx.Identifier{tableName}.Sanitize()
+		_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
+
+		t.Cleanup(func() {
+			_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
+			conn.Close(ctx)
+		})
+
+		adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
+		if err != nil {
+			t.Fatalf("Failed to create adapter: %v", err)
+		}
+
+		if adapter.GetDB() == nil {
+			t.Error("pgxadapter.GetDB() expected db to be set for conn adapter")
+		}
+	})
+
+	t.Run("returns_db_for_pool_adapter", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+		dbURL := os.Getenv("TEST_DATABASE_URL")
+		if dbURL == "" {
+			dbURL = "postgres://postgres:postgres@localhost:5433/casbin_test?sslmode=disable"
+		}
+
+		pool, err := pgxpool.New(ctx, dbURL)
+		if err != nil {
+			t.Skipf("Could not create pool: %v", err)
+		}
+
+		tableName := "test_getdb_pool"
+		quotedTableName := pgx.Identifier{tableName}.Sanitize()
+		_, _ = pool.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
+
+		t.Cleanup(func() {
+			_, _ = pool.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
+			pool.Close()
+		})
+
+		adapter, err := pgxadapter.NewAdapterWithPool(pool, pgxadapter.WithTableName(tableName))
+		if err != nil {
+			t.Fatalf("Failed to create adapter: %v", err)
+		}
+
+		if adapter.GetDB() == nil {
+			t.Error("pgxadapter.GetDB() expected db to be set for pool adapter")
+		}
+	})
 }
 
 func TestWithTableName(t *testing.T) {

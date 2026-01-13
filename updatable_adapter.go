@@ -55,7 +55,7 @@ func (a *PgxAdapter) UpdatePolicyCtx(ctx context.Context, sec string, ptype stri
 		return fmt.Errorf("failed to build update query: %w", err)
 	}
 
-	result, err := a.conn.Exec(ctx, sqlQuery, args...)
+	result, err := a.db.Exec(ctx, sqlQuery, args...)
 	if err != nil {
 		return fmt.Errorf("failed to update policy: %w", err)
 	}
@@ -77,7 +77,7 @@ func (a *PgxAdapter) UpdatePoliciesCtx(ctx context.Context, sec string, ptype st
 		return nil
 	}
 
-	tx, err := a.conn.Begin(ctx)
+	tx, err := a.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -140,7 +140,7 @@ func (a *PgxAdapter) UpdateFilteredPoliciesCtx(ctx context.Context, sec string, 
 		return nil, fmt.Errorf("invalid field index: %d", fieldIndex)
 	}
 
-	tx, err := a.conn.Begin(ctx)
+	tx, err := a.db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}

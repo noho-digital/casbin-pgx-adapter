@@ -31,7 +31,7 @@ package main
 import (
     "log"
     
-    "github.com/casbin/casbin/v2"
+    "github.com/casbin/casbin/v3"
     pgxadapter "github.com/noho-digital/casbin-pgx-adapter"
 )
 
@@ -47,7 +47,6 @@ func main() {
     if err != nil {
         log.Fatal("Failed to create adapter:", err)
     }
-    defer adapter.Close()
     
     // Create Casbin enforcer with model file and adapter
     enforcer, err := casbin.NewEnforcer("path/to/model.conf", adapter)
@@ -128,7 +127,7 @@ go test -v ./...
 - Go 1.24.4 or later
 - Docker and Docker Compose (for development/testing)
 - PostgreSQL database (for production)
-- Casbin v2
+- Casbin v3
 
 ## Related Projects
 

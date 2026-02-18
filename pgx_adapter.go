@@ -7,10 +7,13 @@ import (
 	"sync"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/casbin/casbin/v3/persist"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var _ persist.Adapter = (*PgxAdapter)(nil)
 
 // DB represents database operations needed by the adapter.
 // Both *pgx.Conn and *pgxpool.Pool implement this interface.

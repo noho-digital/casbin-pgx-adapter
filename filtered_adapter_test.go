@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/casbin/casbin/v2/model"
+	"github.com/casbin/casbin/v3/model"
 	pgxadapter "github.com/noho-digital/casbin-pgx-adapter"
 )
 

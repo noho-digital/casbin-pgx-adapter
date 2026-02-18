@@ -6,9 +6,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/casbin/casbin/v2"
-	"github.com/casbin/casbin/v2/model"
+	"github.com/casbin/casbin/v3"
+	"github.com/casbin/casbin/v3/model"
 	"github.com/jackc/pgx/v5"
+
 	pgxadapter "github.com/noho-digital/casbin-pgx-adapter"
 )
 

@@ -219,10 +219,10 @@ func (a *PgxAdapter) RemovePolicyCtx(ctx context.Context, sec string, ptype stri
 	deleteBuilder := a.psql.Delete(a.tableName).Where(sq.Eq{"ptype": ptype})
 
 	// Add conditions for each rule value
-	for i := range 6 {
+	for i, r := range rule {
 		col := colParams[i]
-		if i < len(rule) && rule[i] != "" {
-			deleteBuilder = deleteBuilder.Where(sq.Eq{col: rule[i]})
+		if r != "" { 
+			deleteBuilder = deleteBuilder.Where(sq.Eq{col: r})
 		}
 	}
 

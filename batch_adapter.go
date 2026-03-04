@@ -89,8 +89,6 @@ func (a *PgxAdapter) RemovePoliciesCtx(ctx context.Context, sec string, ptype st
 			col := colParams[i]
 			if i < len(rule) && rule[i] != "" {
 				deleteBuilder = deleteBuilder.Where(sq.Eq{col: rule[i]})
-			} else {
-				deleteBuilder = deleteBuilder.Where(sq.Eq{col: nil})
 			}
 		}
 

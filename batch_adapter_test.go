@@ -249,6 +249,54 @@ func TestRemovePolicies(t *testing.T) {
 	}
 }
 
+func TestRemovePoliciesWithEmptyStringsInDB(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tableName := "casbin_test_remove_batch_empty_str_db"
+	conn := setupTestDB(t, tableName)
+
+	adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
+	if err != nil {
+		t.Fatalf("Failed to create adapter: %v", err)
+	}
+
+	// Insert rows directly with empty strings instead of NULLs for unused fields
+	quotedTableName := pgx.Identifier{tableName}.Sanitize()
+	_, err = conn.Exec(ctx,
+		"INSERT INTO "+quotedTableName+" (ptype, v0, v1, v2, v3, v4, v5) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+		"p", "alice", "data1", "read", "", "", "",
+	)
+	if err != nil {
+		t.Fatalf("Failed to insert test row: %v", err)
+	}
+	_, err = conn.Exec(ctx,
+		"INSERT INTO "+quotedTableName+" (ptype, v0, v1, v2, v3, v4, v5) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+		"p", "bob", "data2", "write", "", "", "",
+	)
+	if err != nil {
+		t.Fatalf("Failed to insert test row: %v", err)
+	}
+
+	// Try to remove policies - should work even though DB has '' instead of NULL
+	err = adapter.RemovePolicies("p", "p", [][]string{
+		{"alice", "data1", "read"},
+	})
+	if err != nil {
+		t.Errorf("RemovePolicies() failed to delete row with empty strings in DB: %v", err)
+	}
+
+	// Verify only bob's row remains
+	var count int
+	err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+quotedTableName).Scan(&count)
+	if err != nil {
+		t.Fatalf("Failed to count rows: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("RemovePolicies() left %d rows, want 1", count)
+	}
+}
+
 func TestAddPoliciesWithPartialDuplicates(t *testing.T) {
 	t.Parallel()
 

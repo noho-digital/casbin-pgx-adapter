@@ -405,6 +405,7 @@ func TestRemovePolicy(t *testing.T) {
 		},
 	}
 
+	// Run table-driven tests
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -453,7 +454,58 @@ func TestRemovePolicy(t *testing.T) {
 			}
 		})
 	}
+
+	// Test: remove policy when DB has empty strings instead of NULLs
+	t.Run("remove_policy_with_empty_strings_in_db", func(t *testing.T) {
+		t.Parallel()
+
+		ctx := context.Background()
+		tableName := "casbin_test_remove_empty_str_db"
+		conn := setupTestDB(t, tableName)
+
+		adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
+		if err != nil {
+			t.Fatalf("Failed to create adapter: %v", err)
+		}
+
+		// Insert a row directly with empty strings instead of NULLs for unused fields
+		quotedTableName := pgx.Identifier{tableName}.Sanitize()
+		_, err = conn.Exec(ctx,
+			"INSERT INTO "+quotedTableName+" (ptype, v0, v1, v2, v3, v4, v5) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+			"p", "alice", "data1", "read", "", "", "",
+		)
+		if err != nil {
+			t.Fatalf("Failed to insert test row with empty strings: %v", err)
+		}
+
+		// Verify the row was inserted
+		var count int
+		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+quotedTableName).Scan(&count)
+		if err != nil {
+			t.Fatalf("Failed to count rows: %v", err)
+		}
+		if count != 1 {
+			t.Fatalf("Expected 1 row after insert, got %d", count)
+		}
+
+		// Try to remove the policy - this should work even though DB has '' instead of NULL
+		err = adapter.RemovePolicy("p", "p", []string{"alice", "data1", "read"})
+		if err != nil {
+			t.Errorf("RemovePolicy() failed to delete row with empty strings in DB: %v", err)
+		}
+
+		// Verify the row was deleted
+		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+quotedTableName).Scan(&count)
+		if err != nil {
+			t.Fatalf("Failed to count rows after delete: %v", err)
+		}
+		if count != 0 {
+			t.Errorf("RemovePolicy() left %d rows, want 0", count)
+		}
+	})
+
 }
+
 
 func TestRemoveFilteredPolicy(t *testing.T) {
 	tests := []struct {

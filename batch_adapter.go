@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // AddPolicies adds policy rules to the storage
@@ -43,13 +42,12 @@ func (a *PgxAdapter) AddPoliciesCtx(ctx context.Context, sec string, ptype strin
 		insertBuilder = insertBuilder.Values(vals...)
 	}
 
-	sql, args, err := insertBuilder.ToSql()
+	sqlStr, args, err := insertBuilder.ToSql()
 	if err != nil {
 		return fmt.Errorf("failed to build insert query: %w", err)
 	}
 
-	var result pgconn.CommandTag
-	result, err = a.execWithRetry(ctx, sql, args...)
+	result, err := a.db.ExecContext(ctx, sqlStr, args...)
 
 	if err != nil {
 		// Check if it's a unique constraint violation
@@ -59,7 +57,12 @@ func (a *PgxAdapter) AddPoliciesCtx(ctx context.Context, sec string, ptype strin
 		return fmt.Errorf("failed to add policies: %w", err)
 	}
 
-	if result.RowsAffected() == 0 {
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
 		return fmt.Errorf("no rows affected")
 	}
 
@@ -73,11 +76,11 @@ func (a *PgxAdapter) RemovePoliciesCtx(ctx context.Context, sec string, ptype st
 	}
 
 	// Start a transaction
-	tx, err := a.beginWithRetry(ctx)
+	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 
 	var totalRowsAffected int64
 
@@ -92,19 +95,22 @@ func (a *PgxAdapter) RemovePoliciesCtx(ctx context.Context, sec string, ptype st
 			}
 		}
 
-		sql, args, err := deleteBuilder.ToSql()
+		sqlStr, args, err := deleteBuilder.ToSql()
 		if err != nil {
 			return fmt.Errorf("failed to build delete query: %w", err)
 		}
 
-		var result pgconn.CommandTag
-		result, err = tx.Exec(ctx, sql, args...)
-
+		result, err := tx.ExecContext(ctx, sqlStr, args...)
 		if err != nil {
 			return fmt.Errorf("failed to remove policy: %w", err)
 		}
 
-		totalRowsAffected += result.RowsAffected()
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+
+		totalRowsAffected += rowsAffected
 	}
 
 	if totalRowsAffected == 0 {
@@ -112,7 +118,7 @@ func (a *PgxAdapter) RemovePoliciesCtx(ctx context.Context, sec string, ptype st
 	}
 
 	// Commit transaction
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 

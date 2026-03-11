@@ -2,6 +2,7 @@ package pgxadapter
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"sync"
@@ -9,30 +10,20 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/casbin/casbin/v3/persist"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 var _ persist.Adapter = (*PgxAdapter)(nil)
 
-// DB represents database operations needed by the adapter.
-// Both *pgx.Conn and *pgxpool.Pool implement this interface.
-type DB interface {
-	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
-	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
-	Begin(ctx context.Context) (pgx.Tx, error)
-}
-
 const (
-	defaultTableName  = "casbin_rule"
-	defaultDatabase   = "casbin"
-	defaultMaxRetries = 2
+	defaultTableName = "casbin_rule"
+	defaultDatabase  = "casbin"
 )
 
 // PgxAdapter represents the pgx adapter for policy persistence
 type PgxAdapter struct {
-	db         DB
-	conn       *pgx.Conn
+	db         *sql.DB
 	pool       *pgxpool.Pool
 	tableName  string
 	database   string
@@ -42,8 +33,7 @@ type PgxAdapter struct {
 	mu         sync.RWMutex
 
 	// pool configuration
-	usePool    bool
-	maxRetries int
+	usePool bool
 }
 
 // Option is a function that configures the adapter
@@ -71,14 +61,6 @@ func WithIndex(columns ...string) Option {
 		if len(columns) > 0 {
 			a.indexes = append(a.indexes, columns)
 		}
-	}
-}
-
-// WithMaxRetries sets the maximum number of retry attempts for transient
-// connection errors. Defaults to 2, matching database/sql's behavior.
-func WithMaxRetries(n int) Option {
-	return func(a *PgxAdapter) {
-		a.maxRetries = n
 	}
 }
 
@@ -128,15 +110,20 @@ func NewAdapter(connStr string, opts ...Option) (*PgxAdapter, error) {
 	return NewAdapterWithConn(conn, opts...)
 }
 
-// NewAdapterWithConn creates a new adapter with an existing connection
+// NewAdapterWithConn creates a new adapter with an existing connection.
+// The connection's config is extracted to create a *sql.DB via stdlib.OpenDB.
+// The passed connection is closed after extracting its config.
 func NewAdapterWithConn(conn *pgx.Conn, opts ...Option) (*PgxAdapter, error) {
+	connConfig := conn.Config()
+	conn.Close(context.Background())
+
+	db := stdlib.OpenDB(*connConfig)
+
 	a := &PgxAdapter{
-		db:         conn,
-		conn:       conn,
-		tableName:  defaultTableName,
-		database:   defaultDatabase,
-		psql:       sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
-		maxRetries: defaultMaxRetries,
+		db:        db,
+		tableName: defaultTableName,
+		database:  defaultDatabase,
+		psql:      sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
 	}
 
 	// Apply options
@@ -154,13 +141,14 @@ func NewAdapterWithConn(conn *pgx.Conn, opts ...Option) (*PgxAdapter, error) {
 
 // NewAdapterWithPool creates a new adapter with an existing connection pool
 func NewAdapterWithPool(pool *pgxpool.Pool, opts ...Option) (*PgxAdapter, error) {
+	db := stdlib.OpenDBFromPool(pool)
+
 	a := &PgxAdapter{
-		db:         pool,
-		pool:       pool,
-		tableName:  defaultTableName,
-		database:   defaultDatabase,
-		psql:       sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
-		maxRetries: defaultMaxRetries,
+		db:        db,
+		pool:      pool,
+		tableName: defaultTableName,
+		database:  defaultDatabase,
+		psql:      sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
 	}
 
 	// Apply options
@@ -199,10 +187,10 @@ func (a *PgxAdapter) createTable() error {
 		ON ` + quotedTableName + `(ptype, COALESCE(v0,''), COALESCE(v1,''), COALESCE(v2,''), COALESCE(v3,''), COALESCE(v4,''), COALESCE(v5,''))`
 
 	// Execute creation statements
-	if _, err := a.db.Exec(ctx, createTableSQL); err != nil {
+	if _, err := a.db.ExecContext(ctx, createTableSQL); err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
-	if _, err := a.db.Exec(ctx, createIndexSQL); err != nil {
+	if _, err := a.db.ExecContext(ctx, createIndexSQL); err != nil {
 		return fmt.Errorf("failed to create index: %w", err)
 	}
 
@@ -229,17 +217,17 @@ func (a *PgxAdapter) createIndex(ctx context.Context, columns []string) error {
 	createIndexSQL := `CREATE INDEX IF NOT EXISTS ` + quotedIndexName +
 		` ON ` + quotedTableName + `(` + strings.Join(quotedColumns, ", ") + `)`
 
-	if _, err := a.db.Exec(ctx, createIndexSQL); err != nil {
+	if _, err := a.db.ExecContext(ctx, createIndexSQL); err != nil {
 		return fmt.Errorf("failed to create index %s: %w", indexName, err)
 	}
 
 	return nil
 }
 
-// GetConn returns the underlying database connection.
-// Returns nil if the adapter was created with a pool.
+// GetConn is deprecated. With the stdlib bridge, connections are managed by *sql.DB.
+// Returns nil.
 func (a *PgxAdapter) GetConn() *pgx.Conn {
-	return a.conn
+	return nil
 }
 
 // GetPool returns the underlying connection pool.
@@ -248,9 +236,8 @@ func (a *PgxAdapter) GetPool() *pgxpool.Pool {
 	return a.pool
 }
 
-// GetDB returns the underlying database interface.
-// This can be used for custom queries and works with both single connections and pools.
-func (a *PgxAdapter) GetDB() DB {
+// GetDB returns the underlying *sql.DB.
+func (a *PgxAdapter) GetDB() *sql.DB {
 	return a.db
 }
 
@@ -262,28 +249,4 @@ func (a *PgxAdapter) GetTableName() string {
 // GetDatabase returns the database name used by the adapter
 func (a *PgxAdapter) GetDatabase() string {
 	return a.database
-}
-
-func (a *PgxAdapter) execWithRetry(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
-	result, err := a.db.Exec(ctx, sql, args...)
-	for i := 0; i < a.maxRetries && err != nil && pgconn.SafeToRetry(err); i++ {
-		result, err = a.db.Exec(ctx, sql, args...)
-	}
-	return result, err
-}
-
-func (a *PgxAdapter) queryWithRetry(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	rows, err := a.db.Query(ctx, sql, args...)
-	for i := 0; i < a.maxRetries && err != nil && pgconn.SafeToRetry(err); i++ {
-		rows, err = a.db.Query(ctx, sql, args...)
-	}
-	return rows, err
-}
-
-func (a *PgxAdapter) beginWithRetry(ctx context.Context) (pgx.Tx, error) {
-	tx, err := a.db.Begin(ctx)
-	for i := 0; i < a.maxRetries && err != nil && pgconn.SafeToRetry(err); i++ {
-		tx, err = a.db.Begin(ctx)
-	}
-	return tx, err
 }

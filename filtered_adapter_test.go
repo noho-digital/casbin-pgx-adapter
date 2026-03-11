@@ -221,16 +221,11 @@ func TestLoadFilteredPolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_filtered_%s", tt.name)
-			conn := setupTestDB(t, tableName)
-
-			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
-			if err != nil {
-				t.Fatalf("Failed to create adapter: %v", err)
-			}
+			adapter, _ := setupTestAdapter(t, tableName)
 
 			// Setup initial policies
 			for _, policy := range tt.setupPolicies {
-				err = adapter.AddPolicy(policy[0], policy[0], policy[1:])
+				err := adapter.AddPolicy(policy[0], policy[0], policy[1:])
 				if err != nil {
 					t.Fatalf("Failed to setup policy: %v", err)
 				}
@@ -239,7 +234,7 @@ func TestLoadFilteredPolicy(t *testing.T) {
 			// Create model and load filtered policies
 			m, _ := model.NewModelFromString(TestModelText)
 
-			err = adapter.LoadFilteredPolicy(m, tt.filter)
+			err := adapter.LoadFilteredPolicy(m, tt.filter)
 
 			if tt.wantErr {
 				if err == nil {
@@ -290,17 +285,12 @@ func TestLoadFilteredPolicyInvalidFilter(t *testing.T) {
 	t.Parallel()
 
 	tableName := "casbin_test_filtered_invalid"
-	conn := setupTestDB(t, tableName)
-
-	adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
-	if err != nil {
-		t.Fatalf("Failed to create adapter: %v", err)
-	}
+	adapter, _ := setupTestAdapter(t, tableName)
 
 	m, _ := model.NewModelFromString(TestModelText)
 
 	// Try with invalid filter type
-	err = adapter.LoadFilteredPolicy(m, "invalid filter")
+	err := adapter.LoadFilteredPolicy(m, "invalid filter")
 
 	if err == nil {
 		t.Errorf("LoadFilteredPolicy() expected error for invalid filter type but got none")
@@ -331,16 +321,11 @@ func TestIsFiltered(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_is_filtered_%s", tt.name)
-			conn := setupTestDB(t, tableName)
-
-			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
-			if err != nil {
-				t.Fatalf("Failed to create adapter: %v", err)
-			}
+			adapter, _ := setupTestAdapter(t, tableName)
 
 			// Setup initial policies
 			for _, policy := range tt.setupPolicies {
-				err = adapter.AddPolicy(policy[0], policy[0], policy[1:])
+				err := adapter.AddPolicy(policy[0], policy[0], policy[1:])
 				if err != nil {
 					t.Fatalf("Failed to setup policy: %v", err)
 				}
@@ -349,7 +334,7 @@ func TestIsFiltered(t *testing.T) {
 			// Create model and load filtered policies
 			m, _ := model.NewModelFromString(TestModelText)
 
-			err = adapter.LoadFilteredPolicy(m, tt.filter)
+			err := adapter.LoadFilteredPolicy(m, tt.filter)
 			if err != nil {
 				t.Fatalf("LoadFilteredPolicy() unexpected error: %v", err)
 			}

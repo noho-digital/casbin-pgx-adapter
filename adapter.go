@@ -10,7 +10,6 @@ import (
 	"github.com/casbin/casbin/v3/model"
 	"github.com/casbin/casbin/v3/persist"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // LoadPolicy loads all policy rules from the storage
@@ -51,7 +50,7 @@ func (a *PgxAdapter) LoadPolicyCtx(ctx context.Context, model model.Model) error
 		return fmt.Errorf("failed to build query: %w", err)
 	}
 
-	rows, err := a.queryWithRetry(ctx, q, args...)
+	rows, err := a.db.QueryContext(ctx, q, args...)
 
 	if err != nil {
 		return fmt.Errorf("failed to query policies: %w", err)
@@ -101,16 +100,16 @@ func (a *PgxAdapter) LoadPolicyCtx(ctx context.Context, model model.Model) error
 func (a *PgxAdapter) SavePolicyCtx(ctx context.Context, model model.Model) error {
 
 	// Start a transaction
-	tx, err := a.beginWithRetry(ctx)
+	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback()
 
 	// Clear existing policies
 	quotedTableName := pgx.Identifier{a.tableName}.Sanitize()
 	truncateSQL := "TRUNCATE TABLE " + quotedTableName
-	if _, err := tx.Exec(ctx, truncateSQL); err != nil {
+	if _, err := tx.ExecContext(ctx, truncateSQL); err != nil {
 		return fmt.Errorf("failed to clear policies: %w", err)
 	}
 
@@ -153,18 +152,18 @@ func (a *PgxAdapter) SavePolicyCtx(ctx context.Context, model model.Model) error
 			insertBuilder = insertBuilder.Values(vals...)
 		}
 
-		sql, args, err := insertBuilder.ToSql()
+		sqlStr, args, err := insertBuilder.ToSql()
 		if err != nil {
 			return fmt.Errorf("failed to build insert query: %w", err)
 		}
 
-		if _, err := tx.Exec(ctx, sql, args...); err != nil {
+		if _, err := tx.ExecContext(ctx, sqlStr, args...); err != nil {
 			return fmt.Errorf("failed to insert policies: %w", err)
 		}
 	}
 
 	// Commit transaction
-	if err := tx.Commit(ctx); err != nil {
+	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -185,7 +184,7 @@ func (a *PgxAdapter) AddPolicyCtx(ctx context.Context, sec string, ptype string,
 		}
 	}
 
-	sql, args, err := a.psql.
+	sqlStr, args, err := a.psql.
 		Insert(a.tableName).
 		Columns(insertColumns...).
 		Values(vals...).
@@ -195,8 +194,7 @@ func (a *PgxAdapter) AddPolicyCtx(ctx context.Context, sec string, ptype string,
 		return fmt.Errorf("failed to build insert query: %w", err)
 	}
 
-	var result pgconn.CommandTag
-	result, err = a.execWithRetry(ctx, sql, args...)
+	result, err := a.db.ExecContext(ctx, sqlStr, args...)
 
 	if err != nil {
 		// Check if it's a unique constraint violation
@@ -206,7 +204,12 @@ func (a *PgxAdapter) AddPolicyCtx(ctx context.Context, sec string, ptype string,
 		return fmt.Errorf("failed to add policy: %w", err)
 	}
 
-	if result.RowsAffected() == 0 {
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
 		return fmt.Errorf("no rows affected")
 	}
 
@@ -221,24 +224,28 @@ func (a *PgxAdapter) RemovePolicyCtx(ctx context.Context, sec string, ptype stri
 	// Add conditions for each rule value
 	for i, r := range rule {
 		col := colParams[i]
-		if r != "" { 
+		if r != "" {
 			deleteBuilder = deleteBuilder.Where(sq.Eq{col: r})
 		}
 	}
 
-	sql, args, err := deleteBuilder.ToSql()
+	sqlStr, args, err := deleteBuilder.ToSql()
 	if err != nil {
 		return fmt.Errorf("failed to build delete query: %w", err)
 	}
 
-	var result pgconn.CommandTag
-	result, err = a.execWithRetry(ctx, sql, args...)
+	result, err := a.db.ExecContext(ctx, sqlStr, args...)
 
 	if err != nil {
 		return fmt.Errorf("failed to remove policy: %w", err)
 	}
 
-	if result.RowsAffected() == 0 {
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
 		return fmt.Errorf("policy not found")
 	}
 
@@ -265,19 +272,23 @@ func (a *PgxAdapter) RemoveFilteredPolicyCtx(ctx context.Context, sec string, pt
 		}
 	}
 
-	sql, args, err := deleteBuilder.ToSql()
+	sqlStr, args, err := deleteBuilder.ToSql()
 	if err != nil {
 		return fmt.Errorf("failed to build delete query: %w", err)
 	}
 
-	var result pgconn.CommandTag
-	result, err = a.execWithRetry(ctx, sql, args...)
+	result, err := a.db.ExecContext(ctx, sqlStr, args...)
 
 	if err != nil {
 		return fmt.Errorf("failed to remove filtered policies: %w", err)
 	}
 
-	if result.RowsAffected() == 0 {
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
 		return fmt.Errorf("no matching policies found")
 	}
 

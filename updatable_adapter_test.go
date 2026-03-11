@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	pgxadapter "github.com/noho-digital/casbin-pgx-adapter"
+	sq "github.com/Masterminds/squirrel"
 )
 
 func TestUpdatePolicy(t *testing.T) {
@@ -53,22 +53,17 @@ func TestUpdatePolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_update_%s", tt.name)
-			conn := setupTestDB(t, tableName)
-
-			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
-			if err != nil {
-				t.Fatalf("Failed to create adapter: %v", err)
-			}
+			adapter, db := setupTestAdapter(t, tableName)
 
 			// Setup initial policies
 			for _, policy := range tt.setupPolicies {
-				err = adapter.AddPolicy(policy[0], policy[0], policy[1:])
+				err := adapter.AddPolicy(policy[0], policy[0], policy[1:])
 				if err != nil {
 					t.Fatalf("Failed to setup policy: %v", err)
 				}
 			}
 
-			err = adapter.UpdatePolicy("p", "p", tt.oldRule, tt.newRule)
+			err := adapter.UpdatePolicy("p", "p", tt.oldRule, tt.newRule)
 
 			if tt.wantErr {
 				if err == nil {
@@ -84,16 +79,20 @@ func TestUpdatePolicy(t *testing.T) {
 			// Verify the policy was updated
 			ctx := context.Background()
 			var count int
-			quotedTableName := adapter.GetTableName()
-			query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE ptype = $1 AND v0 = $2 AND v1 = $3", quotedTableName)
 
+			builder := testPsql.Select("COUNT(*)").From(tableName).Where(sq.Eq{"ptype": "p"})
+			if len(tt.newRule) >= 1 {
+				builder = builder.Where(sq.Eq{"v0": tt.newRule[0]})
+			}
+			if len(tt.newRule) >= 2 {
+				builder = builder.Where(sq.Eq{"v1": tt.newRule[1]})
+			}
 			if len(tt.newRule) >= 3 {
-				query = fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE ptype = $1 AND v0 = $2 AND v1 = $3 AND v2 = $4", quotedTableName)
-				err = conn.QueryRow(ctx, query, "p", tt.newRule[0], tt.newRule[1], tt.newRule[2]).Scan(&count)
-			} else if len(tt.newRule) >= 2 {
-				err = conn.QueryRow(ctx, query, "p", tt.newRule[0], tt.newRule[1]).Scan(&count)
+				builder = builder.Where(sq.Eq{"v2": tt.newRule[2]})
 			}
 
+			q, args, _ := builder.ToSql()
+			err = db.QueryRowContext(ctx, q, args...).Scan(&count)
 			if err != nil {
 				t.Fatalf("Failed to verify policy: %v", err)
 			}
@@ -176,16 +175,11 @@ func TestUpdatePolicies(t *testing.T) {
 
 			ctx := context.Background()
 			tableName := fmt.Sprintf("casbin_test_updates_%s", tt.name)
-			conn := setupTestDB(t, tableName)
-
-			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
-			if err != nil {
-				t.Fatalf("Failed to create adapter: %v", err)
-			}
+			adapter, db := setupTestAdapter(t, tableName)
 
 			// Setup initial policies
 			for _, policy := range tt.setupPolicies {
-				err = adapter.AddPolicy(policy[0], policy[0], policy[1:])
+				err := adapter.AddPolicy(policy[0], policy[0], policy[1:])
 				if err != nil {
 					t.Fatalf("Failed to setup policy: %v", err)
 				}
@@ -193,9 +187,8 @@ func TestUpdatePolicies(t *testing.T) {
 
 			// Count before update for rollback verification
 			var countBefore int
-			quotedTableName := adapter.GetTableName()
-			query := fmt.Sprintf("SELECT COUNT(*) FROM %s", quotedTableName)
-			err = conn.QueryRow(ctx, query).Scan(&countBefore)
+			q, args, _ := testPsql.Select("COUNT(*)").From(tableName).ToSql()
+			err := db.QueryRowContext(ctx, q, args...).Scan(&countBefore)
 			if err != nil {
 				t.Fatalf("Failed to count policies before: %v", err)
 			}
@@ -209,7 +202,7 @@ func TestUpdatePolicies(t *testing.T) {
 
 				// Verify transaction rollback - count should be unchanged
 				var countAfter int
-				err = conn.QueryRow(ctx, query).Scan(&countAfter)
+				err = db.QueryRowContext(ctx, q, args...).Scan(&countAfter)
 				if err != nil {
 					t.Fatalf("Failed to count policies after: %v", err)
 				}
@@ -322,16 +315,11 @@ func TestUpdateFilteredPolicies(t *testing.T) {
 
 			ctx := context.Background()
 			tableName := fmt.Sprintf("casbin_test_update_filtered_%s", tt.name)
-			conn := setupTestDB(t, tableName)
-
-			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
-			if err != nil {
-				t.Fatalf("Failed to create adapter: %v", err)
-			}
+			adapter, db := setupTestAdapter(t, tableName)
 
 			// Setup initial policies
 			for _, policy := range tt.setupPolicies {
-				err = adapter.AddPolicy(policy[0], policy[0], policy[1:])
+				err := adapter.AddPolicy(policy[0], policy[0], policy[1:])
 				if err != nil {
 					t.Fatalf("Failed to setup policy: %v", err)
 				}
@@ -372,10 +360,9 @@ func TestUpdateFilteredPolicies(t *testing.T) {
 			}
 
 			// Verify new policies were inserted
-			quotedTableName := adapter.GetTableName()
 			var count int
-			query := fmt.Sprintf("SELECT COUNT(*) FROM %s", quotedTableName)
-			err = conn.QueryRow(ctx, query).Scan(&count)
+			q, args, _ := testPsql.Select("COUNT(*)").From(tableName).ToSql()
+			err = db.QueryRowContext(ctx, q, args...).Scan(&count)
 			if err != nil {
 				t.Fatalf("Failed to count policies: %v", err)
 			}

@@ -3,47 +3,12 @@ package pgxadapter_test
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/casbin/casbin/v3"
 	"github.com/casbin/casbin/v3/model"
-	"github.com/jackc/pgx/v5"
-
-	pgxadapter "github.com/noho-digital/casbin-pgx-adapter"
 )
-
-// setupTestDB creates a clean test database connection for adapter tests
-func setupTestDB(t *testing.T, tableName string) *pgx.Conn {
-	t.Helper()
-
-	ctx := context.Background()
-	dbURL := os.Getenv("TEST_DATABASE_URL")
-	if dbURL == "" {
-		dbURL = "postgres://postgres:postgres@localhost:5433/casbin_test?sslmode=disable"
-	}
-
-	conn, err := pgx.Connect(ctx, dbURL)
-	if err != nil {
-		t.Skipf("Could not connect to test database: %v", err)
-	}
-
-	if err := conn.Ping(ctx); err != nil {
-		conn.Close(ctx)
-		t.Skipf("Could not ping test database: %v", err)
-	}
-
-	// Clean up any existing test table
-	quotedTableName := pgx.Identifier{tableName}.Sanitize()
-	_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
-
-	t.Cleanup(func() {
-		_, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
-		conn.Close(ctx)
-	})
-
-	return conn
-}
 
 func TestLoadPolicy(t *testing.T) {
 	tests := []struct {
@@ -83,17 +48,10 @@ func TestLoadPolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_load_%s", tt.name)
-			conn := setupTestDB(t, tableName)
+			adapter, db := setupTestAdapter(t, tableName)
 
-			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
-			if err != nil {
-				t.Fatalf("Failed to create adapter: %v", err)
-			}
-
-			// Insert test data directly into database
-			ctx := context.Background()
+			// Insert test data using the adapter
 			for _, policy := range tt.setupPolicies {
-				// Use the adapter's AddPolicy method to insert test data properly
 				if len(policy) > 0 {
 					sec := policy[0]
 					ptype := policy[0]
@@ -108,7 +66,7 @@ func TestLoadPolicy(t *testing.T) {
 			// Create model and load policies
 			m, _ := model.NewModelFromString(TestModelText)
 
-			err = adapter.LoadPolicy(m)
+			err := adapter.LoadPolicy(m)
 
 			if tt.wantErr {
 				if err == nil {
@@ -122,9 +80,10 @@ func TestLoadPolicy(t *testing.T) {
 			}
 
 			// Verify loaded policies count
+			ctx := context.Background()
 			var count int
-			quotedTableName := pgx.Identifier{tableName}.Sanitize()
-			err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+quotedTableName).Scan(&count)
+			q, args, _ := testPsql.Select("COUNT(*)").From(tableName).ToSql()
+			err = db.QueryRowContext(ctx, q, args...).Scan(&count)
 			if err != nil {
 				t.Fatalf("Failed to count policies: %v", err)
 			}
@@ -196,12 +155,7 @@ func TestSavePolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_save_%s", tt.name)
-			conn := setupTestDB(t, tableName)
-
-			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
-			if err != nil {
-				t.Fatalf("Failed to create adapter: %v", err)
-			}
+			adapter, db := setupTestAdapter(t, tableName)
 
 			// Create model and enforcer
 			m, _ := model.NewModelFromString(TestModelText)
@@ -241,11 +195,9 @@ func TestSavePolicy(t *testing.T) {
 
 			// Verify saved policies
 			ctx := context.Background()
-			quotedTableName := pgx.Identifier{tableName}.Sanitize()
 			var pCount int
-			err = conn.QueryRow(ctx,
-				"SELECT COUNT(*) FROM "+quotedTableName+" WHERE ptype = 'p'",
-			).Scan(&pCount)
+			q, args, _ := testPsql.Select("COUNT(*)").From(tableName).Where(sq.Eq{"ptype": "p"}).ToSql()
+			err = db.QueryRowContext(ctx, q, args...).Scan(&pCount)
 			if err != nil {
 				t.Fatalf("Failed to count p policies: %v", err)
 			}
@@ -255,9 +207,8 @@ func TestSavePolicy(t *testing.T) {
 			}
 
 			var gCount int
-			err = conn.QueryRow(ctx,
-				"SELECT COUNT(*) FROM "+quotedTableName+" WHERE ptype = 'g'",
-			).Scan(&gCount)
+			q, args, _ = testPsql.Select("COUNT(*)").From(tableName).Where(sq.Eq{"ptype": "g"}).ToSql()
+			err = db.QueryRowContext(ctx, q, args...).Scan(&gCount)
 			if err != nil {
 				t.Fatalf("Failed to count g policies: %v", err)
 			}
@@ -314,22 +265,17 @@ func TestAddPolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_add_%s", tt.name)
-			conn := setupTestDB(t, tableName)
-
-			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
-			if err != nil {
-				t.Fatalf("Failed to create adapter: %v", err)
-			}
+			adapter, db := setupTestAdapter(t, tableName)
 
 			// Add the policy first time if testing duplicate
 			if tt.name == "add_duplicate_policy" {
-				err = adapter.AddPolicy(tt.sec, tt.ptype, tt.rule)
+				err := adapter.AddPolicy(tt.sec, tt.ptype, tt.rule)
 				if err != nil {
 					t.Fatalf("Failed to add initial policy for duplicate test: %v", err)
 				}
 			}
 
-			err = adapter.AddPolicy(tt.sec, tt.ptype, tt.rule)
+			err := adapter.AddPolicy(tt.sec, tt.ptype, tt.rule)
 
 			if tt.wantErr {
 				if err == nil {
@@ -344,10 +290,9 @@ func TestAddPolicy(t *testing.T) {
 
 			// Verify the policy was added
 			ctx := context.Background()
-			quotedTableName := pgx.Identifier{tableName}.Sanitize()
 			var count int
-			query := "SELECT COUNT(*) FROM " + quotedTableName + " WHERE ptype = $1"
-			err = conn.QueryRow(ctx, query, tt.ptype).Scan(&count)
+			q, args, _ := testPsql.Select("COUNT(*)").From(tableName).Where(sq.Eq{"ptype": tt.ptype}).ToSql()
+			err = db.QueryRowContext(ctx, q, args...).Scan(&count)
 			if err != nil {
 				t.Fatalf("Failed to verify policy: %v", err)
 			}
@@ -411,22 +356,17 @@ func TestRemovePolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_remove_%s", tt.name)
-			conn := setupTestDB(t, tableName)
-
-			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
-			if err != nil {
-				t.Fatalf("Failed to create adapter: %v", err)
-			}
+			adapter, db := setupTestAdapter(t, tableName)
 
 			// Setup initial policies
 			for _, policy := range tt.setupPolicies {
-				err = adapter.AddPolicy(policy[0], policy[0], policy[1:])
+				err := adapter.AddPolicy(policy[0], policy[0], policy[1:])
 				if err != nil {
 					t.Fatalf("Failed to setup policy: %v", err)
 				}
 			}
 
-			err = adapter.RemovePolicy(tt.sec, tt.ptype, tt.rule)
+			err := adapter.RemovePolicy(tt.sec, tt.ptype, tt.rule)
 
 			if tt.wantErr {
 				if err == nil {
@@ -441,10 +381,9 @@ func TestRemovePolicy(t *testing.T) {
 
 			// Verify remaining policies
 			ctx := context.Background()
-			quotedTableName := pgx.Identifier{tableName}.Sanitize()
 			var count int
-			query := "SELECT COUNT(*) FROM " + quotedTableName
-			err = conn.QueryRow(ctx, query).Scan(&count)
+			q, args, _ := testPsql.Select("COUNT(*)").From(tableName).ToSql()
+			err = db.QueryRowContext(ctx, q, args...).Scan(&count)
 			if err != nil {
 				t.Fatalf("Failed to count remaining policies: %v", err)
 			}
@@ -461,26 +400,22 @@ func TestRemovePolicy(t *testing.T) {
 
 		ctx := context.Background()
 		tableName := "casbin_test_remove_empty_str_db"
-		conn := setupTestDB(t, tableName)
-
-		adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
-		if err != nil {
-			t.Fatalf("Failed to create adapter: %v", err)
-		}
+		adapter, db := setupTestAdapter(t, tableName)
 
 		// Insert a row directly with empty strings instead of NULLs for unused fields
-		quotedTableName := pgx.Identifier{tableName}.Sanitize()
-		_, err = conn.Exec(ctx,
-			"INSERT INTO "+quotedTableName+" (ptype, v0, v1, v2, v3, v4, v5) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-			"p", "alice", "data1", "read", "", "", "",
-		)
+		q, args, _ := testPsql.Insert(tableName).
+			Columns("ptype", "v0", "v1", "v2", "v3", "v4", "v5").
+			Values("p", "alice", "data1", "read", "", "", "").
+			ToSql()
+		_, err := db.ExecContext(ctx, q, args...)
 		if err != nil {
 			t.Fatalf("Failed to insert test row with empty strings: %v", err)
 		}
 
 		// Verify the row was inserted
 		var count int
-		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+quotedTableName).Scan(&count)
+		q, args, _ = testPsql.Select("COUNT(*)").From(tableName).ToSql()
+		err = db.QueryRowContext(ctx, q, args...).Scan(&count)
 		if err != nil {
 			t.Fatalf("Failed to count rows: %v", err)
 		}
@@ -495,7 +430,8 @@ func TestRemovePolicy(t *testing.T) {
 		}
 
 		// Verify the row was deleted
-		err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM "+quotedTableName).Scan(&count)
+		q, args, _ = testPsql.Select("COUNT(*)").From(tableName).ToSql()
+		err = db.QueryRowContext(ctx, q, args...).Scan(&count)
 		if err != nil {
 			t.Fatalf("Failed to count rows after delete: %v", err)
 		}
@@ -503,9 +439,7 @@ func TestRemovePolicy(t *testing.T) {
 			t.Errorf("RemovePolicy() left %d rows, want 0", count)
 		}
 	})
-
 }
-
 
 func TestRemoveFilteredPolicy(t *testing.T) {
 	tests := []struct {
@@ -579,22 +513,17 @@ func TestRemoveFilteredPolicy(t *testing.T) {
 			t.Parallel()
 
 			tableName := fmt.Sprintf("casbin_test_filter_%s", tt.name)
-			conn := setupTestDB(t, tableName)
-
-			adapter, err := pgxadapter.NewAdapterWithConn(conn, pgxadapter.WithTableName(tableName))
-			if err != nil {
-				t.Fatalf("Failed to create adapter: %v", err)
-			}
+			adapter, db := setupTestAdapter(t, tableName)
 
 			// Setup initial policies
 			for _, policy := range tt.setupPolicies {
-				err = adapter.AddPolicy(policy[0], policy[0], policy[1:])
+				err := adapter.AddPolicy(policy[0], policy[0], policy[1:])
 				if err != nil {
 					t.Fatalf("Failed to setup policy: %v", err)
 				}
 			}
 
-			err = adapter.RemoveFilteredPolicy(tt.sec, tt.ptype, tt.fieldIndex, tt.fieldValues...)
+			err := adapter.RemoveFilteredPolicy(tt.sec, tt.ptype, tt.fieldIndex, tt.fieldValues...)
 
 			if tt.wantErr {
 				if err == nil {
@@ -609,10 +538,9 @@ func TestRemoveFilteredPolicy(t *testing.T) {
 
 			// Verify remaining policies
 			ctx := context.Background()
-			quotedTableName := pgx.Identifier{tableName}.Sanitize()
 			var count int
-			query := "SELECT COUNT(*) FROM " + quotedTableName
-			err = conn.QueryRow(ctx, query).Scan(&count)
+			q, args, _ := testPsql.Select("COUNT(*)").From(tableName).ToSql()
+			err = db.QueryRowContext(ctx, q, args...).Scan(&count)
 			if err != nil {
 				t.Fatalf("Failed to count remaining policies: %v", err)
 			}

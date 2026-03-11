@@ -97,17 +97,37 @@ func NewAdapter(connStr string, opts ...Option) (*PgxAdapter, error) {
 		return NewAdapterWithPool(pool, opts...)
 	}
 
-	conn, err := pgx.Connect(ctx, connStr)
+	config, err := pgx.ParseConfig(connStr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create connection: %w", err)
+		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
-	if err := conn.Ping(ctx); err != nil {
-		conn.Close(ctx)
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+	return NewAdapterWithConfig(config, opts...)
+}
+
+// NewAdapterWithConfig creates a new adapter with a given pgx.ConnConfig.
+func NewAdapterWithConfig(config *pgx.ConnConfig, opts ...Option) (*PgxAdapter, error) {
+	db := stdlib.OpenDB(*config)
+
+	a := &PgxAdapter{
+		db:        db,
+		tableName: defaultTableName,
+		database:  defaultDatabase,
+		psql:      sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
 	}
 
-	return NewAdapterWithConn(conn, opts...)
+	// Apply options
+	for _, opt := range opts {
+		opt(a)
+	}
+
+	// Create table if it doesn't exist
+	if err := a.createTable(); err != nil {
+		return nil, fmt.Errorf("failed to create table: %w", err)
+	}
+
+	return a, nil
+
 }
 
 // NewAdapterWithConn creates a new adapter with an existing connection.

@@ -24,8 +24,9 @@ type DB interface {
 }
 
 const (
-	defaultTableName = "casbin_rule"
-	defaultDatabase  = "casbin"
+	defaultTableName  = "casbin_rule"
+	defaultDatabase   = "casbin"
+	defaultMaxRetries = 2
 )
 
 // PgxAdapter represents the pgx adapter for policy persistence
@@ -41,7 +42,8 @@ type PgxAdapter struct {
 	mu         sync.RWMutex
 
 	// pool configuration
-	usePool bool
+	usePool    bool
+	maxRetries int
 }
 
 // Option is a function that configures the adapter
@@ -69,6 +71,14 @@ func WithIndex(columns ...string) Option {
 		if len(columns) > 0 {
 			a.indexes = append(a.indexes, columns)
 		}
+	}
+}
+
+// WithMaxRetries sets the maximum number of retry attempts for transient
+// connection errors. Defaults to 2, matching database/sql's behavior.
+func WithMaxRetries(n int) Option {
+	return func(a *PgxAdapter) {
+		a.maxRetries = n
 	}
 }
 
@@ -121,11 +131,12 @@ func NewAdapter(connStr string, opts ...Option) (*PgxAdapter, error) {
 // NewAdapterWithConn creates a new adapter with an existing connection
 func NewAdapterWithConn(conn *pgx.Conn, opts ...Option) (*PgxAdapter, error) {
 	a := &PgxAdapter{
-		db:        conn,
-		conn:      conn,
-		tableName: defaultTableName,
-		database:  defaultDatabase,
-		psql:      sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
+		db:         conn,
+		conn:       conn,
+		tableName:  defaultTableName,
+		database:   defaultDatabase,
+		psql:       sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
+		maxRetries: defaultMaxRetries,
 	}
 
 	// Apply options
@@ -144,11 +155,12 @@ func NewAdapterWithConn(conn *pgx.Conn, opts ...Option) (*PgxAdapter, error) {
 // NewAdapterWithPool creates a new adapter with an existing connection pool
 func NewAdapterWithPool(pool *pgxpool.Pool, opts ...Option) (*PgxAdapter, error) {
 	a := &PgxAdapter{
-		db:        pool,
-		pool:      pool,
-		tableName: defaultTableName,
-		database:  defaultDatabase,
-		psql:      sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
+		db:         pool,
+		pool:       pool,
+		tableName:  defaultTableName,
+		database:   defaultDatabase,
+		psql:       sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
+		maxRetries: defaultMaxRetries,
 	}
 
 	// Apply options
@@ -250,4 +262,28 @@ func (a *PgxAdapter) GetTableName() string {
 // GetDatabase returns the database name used by the adapter
 func (a *PgxAdapter) GetDatabase() string {
 	return a.database
+}
+
+func (a *PgxAdapter) execWithRetry(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	result, err := a.db.Exec(ctx, sql, args...)
+	for i := 0; i < a.maxRetries && err != nil && pgconn.SafeToRetry(err); i++ {
+		result, err = a.db.Exec(ctx, sql, args...)
+	}
+	return result, err
+}
+
+func (a *PgxAdapter) queryWithRetry(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	rows, err := a.db.Query(ctx, sql, args...)
+	for i := 0; i < a.maxRetries && err != nil && pgconn.SafeToRetry(err); i++ {
+		rows, err = a.db.Query(ctx, sql, args...)
+	}
+	return rows, err
+}
+
+func (a *PgxAdapter) beginWithRetry(ctx context.Context) (pgx.Tx, error) {
+	tx, err := a.db.Begin(ctx)
+	for i := 0; i < a.maxRetries && err != nil && pgconn.SafeToRetry(err); i++ {
+		tx, err = a.db.Begin(ctx)
+	}
+	return tx, err
 }

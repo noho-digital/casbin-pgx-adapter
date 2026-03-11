@@ -135,6 +135,88 @@ func TestNewAdapter(t *testing.T) {
 		})
 	}
 }
+
+func TestNewAdapterWithConfig(t *testing.T) {
+	tests := []struct {
+		name      string
+		tableName string
+		wantErr   bool
+	}{
+		{
+			name:      "successful_creation_with_default_table",
+			tableName: "casbin_test_with_config",
+			wantErr:   false,
+		},
+		{
+			name:      "successful_creation_with_custom_table",
+			tableName: "custom_config_table",
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			dbURL := getTestDBURL()
+
+			config, err := pgx.ParseConfig(dbURL)
+			if err != nil {
+				t.Skipf("Could not parse connection string: %v", err)
+			}
+
+			// Clean up any existing test table
+			quotedTableName := pgx.Identifier{tt.tableName}.Sanitize()
+			cleanupConn, err := pgx.Connect(ctx, dbURL)
+			if err != nil {
+				t.Skipf("Could not connect to test database: %v", err)
+			}
+			_, _ = cleanupConn.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
+			cleanupConn.Close(ctx)
+
+			t.Cleanup(func() {
+				cleanConn, err := pgx.Connect(ctx, dbURL)
+				if err == nil {
+					_, _ = cleanConn.Exec(ctx, "DROP TABLE IF EXISTS "+quotedTableName+" CASCADE")
+					cleanConn.Close(ctx)
+				}
+			})
+
+			adapter, err := pgxadapter.NewAdapterWithConfig(config, pgxadapter.WithTableName(tt.tableName))
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("pgxadapter.NewAdapterWithConfig() expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("pgxadapter.NewAdapterWithConfig() unexpected error: %v", err)
+			}
+
+			t.Cleanup(func() {
+				if adapter != nil {
+					adapter.GetDB().Close()
+				}
+			})
+
+			if adapter.GetTableName() != tt.tableName {
+				t.Errorf("pgxadapter.NewAdapterWithConfig() tableName = %v, want %v", adapter.GetTableName(), tt.tableName)
+			}
+
+			if adapter.GetDB() == nil {
+				t.Error("pgxadapter.NewAdapterWithConfig() expected db to be set")
+			}
+
+			if adapter.GetPool() != nil {
+				t.Error("pgxadapter.NewAdapterWithConfig() expected pool to be nil (single connection)")
+			}
+		})
+	}
+}
+
 func TestNewAdapterWithConn(t *testing.T) {
 	tests := []struct {
 		name      string

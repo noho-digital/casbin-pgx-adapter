@@ -255,8 +255,7 @@ func TestAddPolicy(t *testing.T) {
 			sec:     "p",
 			ptype:   "p",
 			rule:    []string{"alice", "data1", "read"},
-			wantErr: true,
-			errMsg:  "policy already exists",
+			wantErr: false,
 		},
 	}
 
@@ -333,8 +332,7 @@ func TestRemovePolicy(t *testing.T) {
 			sec:           "p",
 			ptype:         "p",
 			rule:          []string{"alice", "data1", "read"},
-			wantErr:       true,
-			errMsg:        "policy not found",
+			wantErr:       false,
 			expectedCount: 0,
 		},
 		{
@@ -483,6 +481,9 @@ func TestRemoveFilteredPolicy(t *testing.T) {
 			expectedCount: 2, // alice+data2 and bob+data1 remain
 		},
 		{
+			// Removal of policies should be an idempotent operation.
+			// Watchers must be able to run RemovePolicy to affect the
+			// in-memory policy without worrying about the state of the database.
 			name: "remove_with_no_matches",
 			setupPolicies: [][]string{
 				{"p", "alice", "data1", "read"},
@@ -491,8 +492,7 @@ func TestRemoveFilteredPolicy(t *testing.T) {
 			ptype:         "p",
 			fieldIndex:    0,
 			fieldValues:   []string{"bob"},
-			wantErr:       true,
-			errMsg:        "no matching policies found",
+			wantErr:       false,
 			expectedCount: 1,
 		},
 		{

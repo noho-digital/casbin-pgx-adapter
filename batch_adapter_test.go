@@ -68,9 +68,8 @@ func TestAddPolicies(t *testing.T) {
 				{"alice", "data1", "read"},
 				{"alice", "data1", "read"},
 			},
-			wantErr:       true,
-			errMsg:        "one or more policies already exist",
-			expectedCount: 0,
+			wantErr:       false,
+			expectedCount: 1,
 		},
 	}
 
@@ -148,8 +147,7 @@ func TestRemovePolicies(t *testing.T) {
 				{"bob", "data2", "write"},
 				{"charlie", "data3", "read"},
 			},
-			wantErr:       true,
-			errMsg:        "no policies found",
+			wantErr:       false,
 			expectedCount: 1,
 		},
 		{
@@ -304,11 +302,11 @@ func TestAddPoliciesWithPartialDuplicates(t *testing.T) {
 
 	err = adapter.AddPolicies("p", "p", rules)
 
-	if err == nil {
-		t.Errorf("AddPoliciesCtx() expected error for partial duplicates but got none")
+	if err != nil {
+		t.Errorf("AddPoliciesCtx() unexpected error: %v", err)
 	}
 
-	// Verify that the transaction was rolled back
+	// Verify that the duplicate was silently ignored and unique policies were added
 	var count int
 	q, args, _ := testPsql.Select("COUNT(*)").From(tableName).ToSql()
 	err = db.QueryRowContext(ctx, q, args...).Scan(&count)
@@ -316,8 +314,8 @@ func TestAddPoliciesWithPartialDuplicates(t *testing.T) {
 		t.Fatalf("Failed to count policies: %v", err)
 	}
 
-	// Should only have the initial policy, not any from the failed batch
-	if count != 1 {
-		t.Errorf("AddPoliciesCtx() should have rolled back, but found %d policies", count)
+	// Should have 3 total: the initial + 2 new unique ones (duplicate ignored)
+	if count != 3 {
+		t.Errorf("AddPoliciesCtx() expected 3 policies, but found %d", count)
 	}
 }

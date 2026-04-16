@@ -1,11 +1,11 @@
 module github.com/noho-digital/casbin-pgx-adapter
 
-go 1.24.4
+go 1.25.0
 
 require (
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/casbin/casbin/v3 v3.10.0
-	github.com/jackc/pgx/v5 v5.8.0
+	github.com/jackc/pgx/v5 v5.9.0
 )
 
 require (

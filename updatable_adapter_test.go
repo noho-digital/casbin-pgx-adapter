@@ -17,37 +17,34 @@ func TestUpdatePolicy(t *testing.T) {
 		newRule       []string
 		wantErr       bool
 		errMsg        string
-		expectUpdate  bool
 	}{
 		{
 			name: "update_existing_policy",
 			setupPolicies: [][]string{
 				{"p", "alice", "data1", "read"},
 			},
-			oldRule:      []string{"alice", "data1", "read"},
-			newRule:      []string{"alice", "data1", "write"},
-			wantErr:      false,
-			expectUpdate: true,
+			oldRule: []string{"alice", "data1", "read"},
+			newRule: []string{"alice", "data1", "write"},
+			wantErr: false,
 		},
 		{
 			name: "update_non_existent_policy",
 			setupPolicies: [][]string{
 				{"p", "alice", "data1", "read"},
 			},
-			oldRule:      []string{"bob", "data2", "write"},
-			newRule:      []string{"bob", "data2", "read"},
-			wantErr:      false,
-			expectUpdate: false,
+			oldRule: []string{"bob", "data2", "write"},
+			newRule: []string{"bob", "data2", "read"},
+			wantErr: true,
+			errMsg:  "policy not found",
 		},
 		{
 			name: "update_policy_with_null_fields",
 			setupPolicies: [][]string{
 				{"p", "alice", "data1", ""},
 			},
-			oldRule:      []string{"alice", "data1", ""},
-			newRule:      []string{"alice", "data1", "read"},
-			wantErr:      false,
-			expectUpdate: true,
+			oldRule: []string{"alice", "data1", ""},
+			newRule: []string{"alice", "data1", "read"},
+			wantErr: false,
 		},
 	}
 
@@ -79,31 +76,29 @@ func TestUpdatePolicy(t *testing.T) {
 				t.Errorf("UpdatePolicy() unexpected error: %v", err)
 			}
 
-			if tt.expectUpdate {
-				// Verify the policy was updated
-				ctx := context.Background()
-				var count int
+			// Verify the policy was updated
+			ctx := context.Background()
+			var count int
 
-				builder := testPsql.Select("COUNT(*)").From(tableName).Where(sq.Eq{"ptype": "p"})
-				if len(tt.newRule) >= 1 {
-					builder = builder.Where(sq.Eq{"v0": tt.newRule[0]})
-				}
-				if len(tt.newRule) >= 2 {
-					builder = builder.Where(sq.Eq{"v1": tt.newRule[1]})
-				}
-				if len(tt.newRule) >= 3 {
-					builder = builder.Where(sq.Eq{"v2": tt.newRule[2]})
-				}
+			builder := testPsql.Select("COUNT(*)").From(tableName).Where(sq.Eq{"ptype": "p"})
+			if len(tt.newRule) >= 1 {
+				builder = builder.Where(sq.Eq{"v0": tt.newRule[0]})
+			}
+			if len(tt.newRule) >= 2 {
+				builder = builder.Where(sq.Eq{"v1": tt.newRule[1]})
+			}
+			if len(tt.newRule) >= 3 {
+				builder = builder.Where(sq.Eq{"v2": tt.newRule[2]})
+			}
 
-				q, args, _ := builder.ToSql()
-				err = db.QueryRowContext(ctx, q, args...).Scan(&count)
-				if err != nil {
-					t.Fatalf("Failed to verify policy: %v", err)
-				}
+			q, args, _ := builder.ToSql()
+			err = db.QueryRowContext(ctx, q, args...).Scan(&count)
+			if err != nil {
+				t.Fatalf("Failed to verify policy: %v", err)
+			}
 
-				if count != 1 {
-					t.Errorf("UpdatePolicy() found %d policies with new values, want 1", count)
-				}
+			if count != 1 {
+				t.Errorf("UpdatePolicy() found %d policies with new values, want 1", count)
 			}
 		})
 	}
@@ -169,7 +164,8 @@ func TestUpdatePolicies(t *testing.T) {
 				{"alice", "data1", "write"},
 				{"bob", "data2", "read"},
 			},
-			wantErr: false,
+			wantErr: true,
+			errMsg:  "policy not found",
 		},
 	}
 
@@ -244,9 +240,9 @@ func TestUpdateFilteredPolicies(t *testing.T) {
 			newRules: [][]string{
 				{"alice", "data3", "read"},
 			},
-			fieldIndex:  0,
+			fieldIndex: 0,
 			fieldValues: []string{"alice"},
-			wantErr:     false,
+			wantErr:    false,
 			expectedDeleted: [][]string{
 				{"alice", "data1", "read"},
 				{"alice", "data2", "write"},
@@ -262,9 +258,9 @@ func TestUpdateFilteredPolicies(t *testing.T) {
 			newRules: [][]string{
 				{"alice", "data1", "admin"},
 			},
-			fieldIndex:  0,
+			fieldIndex: 0,
 			fieldValues: []string{"alice", "data1"},
-			wantErr:     false,
+			wantErr:    false,
 			expectedDeleted: [][]string{
 				{"alice", "data1", "read"},
 				{"alice", "data1", "write"},

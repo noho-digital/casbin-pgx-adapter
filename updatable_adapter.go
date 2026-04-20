@@ -55,9 +55,18 @@ func (a *PgxAdapter) UpdatePolicyCtx(ctx context.Context, sec string, ptype stri
 		return fmt.Errorf("failed to build update query: %w", err)
 	}
 
-	_, err = a.db.ExecContext(ctx, sqlQuery, args...)
+	result, err := a.db.ExecContext(ctx, sqlQuery, args...)
 	if err != nil {
 		return fmt.Errorf("failed to update policy: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("policy not found")
 	}
 
 	return nil
@@ -113,11 +122,19 @@ func (a *PgxAdapter) UpdatePoliciesCtx(ctx context.Context, sec string, ptype st
 			return fmt.Errorf("failed to build update query: %w", err)
 		}
 
-		_, err = tx.ExecContext(ctx, sqlQuery, args...)
+		result, err := tx.ExecContext(ctx, sqlQuery, args...)
 		if err != nil {
 			return fmt.Errorf("failed to update policy: %w", err)
 		}
 
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+
+		if rowsAffected == 0 {
+			return fmt.Errorf("policy not found at index %d", i)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {

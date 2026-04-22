@@ -55,7 +55,7 @@ func (a *PgxAdapter) LoadPolicyCtx(ctx context.Context, model model.Model) error
 	if err != nil {
 		return fmt.Errorf("failed to query policies: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	for rows.Next() {
 		var ptype string
@@ -104,7 +104,7 @@ func (a *PgxAdapter) SavePolicyCtx(ctx context.Context, model model.Model) error
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
 	// Clear existing policies
 	quotedTableName := pgx.Identifier{a.tableName}.Sanitize()
@@ -188,29 +188,16 @@ func (a *PgxAdapter) AddPolicyCtx(ctx context.Context, sec string, ptype string,
 		Insert(a.tableName).
 		Columns(insertColumns...).
 		Values(vals...).
+		Suffix("ON CONFLICT DO NOTHING").
 		ToSql()
 
 	if err != nil {
 		return fmt.Errorf("failed to build insert query: %w", err)
 	}
 
-	result, err := a.db.ExecContext(ctx, sqlStr, args...)
-
+	_, err = a.db.ExecContext(ctx, sqlStr, args...)
 	if err != nil {
-		// Check if it's a unique constraint violation
-		if strings.Contains(err.Error(), "duplicate key") {
-			return fmt.Errorf("policy already exists")
-		}
 		return fmt.Errorf("failed to add policy: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("no rows affected")
 	}
 
 	return nil
@@ -234,19 +221,9 @@ func (a *PgxAdapter) RemovePolicyCtx(ctx context.Context, sec string, ptype stri
 		return fmt.Errorf("failed to build delete query: %w", err)
 	}
 
-	result, err := a.db.ExecContext(ctx, sqlStr, args...)
-
+	_, err = a.db.ExecContext(ctx, sqlStr, args...)
 	if err != nil {
 		return fmt.Errorf("failed to remove policy: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("policy not found")
 	}
 
 	return nil
@@ -277,19 +254,9 @@ func (a *PgxAdapter) RemoveFilteredPolicyCtx(ctx context.Context, sec string, pt
 		return fmt.Errorf("failed to build delete query: %w", err)
 	}
 
-	result, err := a.db.ExecContext(ctx, sqlStr, args...)
-
+	_, err = a.db.ExecContext(ctx, sqlStr, args...)
 	if err != nil {
 		return fmt.Errorf("failed to remove filtered policies: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("no matching policies found")
 	}
 
 	return nil

@@ -3,7 +3,6 @@ package pgxadapter
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	sq "github.com/Masterminds/squirrel"
 )
@@ -25,7 +24,8 @@ func (a *PgxAdapter) AddPoliciesCtx(ctx context.Context, sec string, ptype strin
 	}
 
 	insertBuilder := a.psql.Insert(a.tableName).
-		Columns(insertColumns...)
+		Columns(insertColumns...).
+		Suffix("ON CONFLICT DO NOTHING")
 
 	for _, rule := range rules {
 		vals := make([]any, 7)
@@ -47,23 +47,10 @@ func (a *PgxAdapter) AddPoliciesCtx(ctx context.Context, sec string, ptype strin
 		return fmt.Errorf("failed to build insert query: %w", err)
 	}
 
-	result, err := a.db.ExecContext(ctx, sqlStr, args...)
+	_, err = a.db.ExecContext(ctx, sqlStr, args...)
 
 	if err != nil {
-		// Check if it's a unique constraint violation
-		if strings.Contains(err.Error(), "duplicate key") {
-			return fmt.Errorf("one or more policies already exist")
-		}
 		return fmt.Errorf("failed to add policies: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("no rows affected")
 	}
 
 	return nil
@@ -82,8 +69,6 @@ func (a *PgxAdapter) RemovePoliciesCtx(ctx context.Context, sec string, ptype st
 	}
 	defer tx.Rollback()
 
-	var totalRowsAffected int64
-
 	for _, rule := range rules {
 		deleteBuilder := a.psql.Delete(a.tableName).Where(sq.Eq{"ptype": ptype})
 
@@ -100,21 +85,11 @@ func (a *PgxAdapter) RemovePoliciesCtx(ctx context.Context, sec string, ptype st
 			return fmt.Errorf("failed to build delete query: %w", err)
 		}
 
-		result, err := tx.ExecContext(ctx, sqlStr, args...)
+		_, err = tx.ExecContext(ctx, sqlStr, args...)
 		if err != nil {
 			return fmt.Errorf("failed to remove policy: %w", err)
 		}
 
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			return fmt.Errorf("failed to get rows affected: %w", err)
-		}
-
-		totalRowsAffected += rowsAffected
-	}
-
-	if totalRowsAffected == 0 {
-		return fmt.Errorf("no policies found")
 	}
 
 	// Commit transaction
